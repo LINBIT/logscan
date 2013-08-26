@@ -1,0 +1,18 @@
+Installation Instructions
+*************************
+
+Requirements for building this package:
+
+	* gcc
+
+If you have obtained the program sources from the git repository, please see
+README-hacking.  After following the instructions there, configure and build
+this package with:
+
+	$ ./configure
+	$ make
+	$ make check
+
+Install with:
+
+	$ make install

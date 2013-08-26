@@ -1,0 +1,11 @@
+Requirements for building from the GIT repository:
+
+	* autoconf
+	* automake
+
+Bootstrap the source repository with:
+
+	$ ./bootstrap
+
+Then, follow the instructions in INSTALL for building and installing this
+package.

@@ -1,0 +1,12 @@
+/.version
+/aclocal.m4
+/autom4te.cache
+/config.log
+/config.status
+/configure
+.deps
+Makefile
+Makefile.in
+*.o
+/logscan
+/logscan-*.tar.gz
