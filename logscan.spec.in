@@ -1,0 +1,33 @@
+%define src_version @VERSION@
+
+Name: @PACKAGE@
+Version: %(set -- %{src_version}; echo ${1%%-*})
+Release: %(set -- %{src_version}; if [ ${1#*-} != $1 ]; then echo ${1#*-}; else echo 0; fi)
+Summary: Check for patterns in log files
+Source0: %{name}-%{src_version}.tar.gz
+License: GPL v3.0
+Group: Development/Tools
+BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-buildroot
+Prefix: %{_prefix}
+Vendor: @PACKAGE_BUGREPORT@
+BuildRequires: gcc
+
+%description
+Watch one or more logfiles, and check for regular expression patterns.
+
+%prep
+%setup -n %{name}-%{src_version}
+
+%build
+%configure
+make
+
+%install
+make install DESTDIR=%{buildroot}
+
+%clean
+rm -rf %{buildroot}
+
+%files
+%defattr(-,root,root)
+/usr/bin/logscan

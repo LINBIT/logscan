@@ -34,12 +34,12 @@ gen-ChangeLog:
 	  mv $(distdir)/cl-t $(distdir)/ChangeLog;				\
         fi
 
-#rpm: dist
-#	rpmbuild -ba \
-#		--define "_topdir $(CURDIR)/build" \
-#		--define "_sourcedir $(CURDIR)" \
-#		--clean \
-#		$(PACKAGE).spec
-#
-#debian: rpm
-#	ls -t build/RPMS/*/* | head -n 1 | xargs fakeroot alien
+rpm: dist
+	rpmbuild -ba \
+		--define "_topdir $(CURDIR)/build" \
+		--define "_sourcedir $(CURDIR)" \
+		--clean \
+		$(PACKAGE).spec
+
+debian: rpm
+	ls -t build/RPMS/*/* | head -n 1 | xargs fakeroot alien

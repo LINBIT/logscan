@@ -10,3 +10,4 @@ Makefile.in
 *.o
 /logscan
 /logscan-*.tar.gz
+/logscan.spec

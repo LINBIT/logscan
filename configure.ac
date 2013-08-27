@@ -5,6 +5,7 @@ AC_CONFIG_AUX_DIR([build-aux])
 AC_CONFIG_FILES([
 	Makefile
 	tests/Makefile
+	logscan.spec
 ])
 AM_INIT_AUTOMAKE
 AM_SILENT_RULES([yes])
