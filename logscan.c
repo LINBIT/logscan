@@ -164,6 +164,7 @@ static void read_positions(const char *dumpfile)
 	    next:
 		free(name);
 	}
+	fclose(f);
 }
 
 static void write_positions(const char *dumpfile)
