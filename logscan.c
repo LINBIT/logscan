@@ -490,7 +490,7 @@ int main(int argc, char *argv[])
 	if (list_empty(&good_patterns) && list_empty(&bad_patterns))
 		usage("no search patterns specified");
 	if (!opt_t)
-		opt_t = getenv("DRBD_EVENTS_TIMEOUT");
+		opt_t = getenv("LOGSCAN_TIMEOUT");
 
 	for (number_of_files = 0; optind < argc; optind++) {
 		struct logfile *file;
