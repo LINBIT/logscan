@@ -442,10 +442,12 @@ static void set_timeout(const char *arg)
 	frac = modf(t, &t);
 	value.it_value.tv_sec = floor(t);
 	value.it_value.tv_usec = floor(frac * 1e6);
-	set_signals();
-	ret = setitimer(ITIMER_REAL, &value, NULL);
-	if (ret != 0)
-		fatal("setting timer");
+	if (value.it_value.tv_sec != 0 || value.it_value.tv_usec != 0) {
+		set_signals();
+		ret = setitimer(ITIMER_REAL, &value, NULL);
+		if (ret != 0)
+			fatal("setting timer");
+	}
 }
 
 int main(int argc, char *argv[])
