@@ -533,7 +533,25 @@ int main(int argc, char *argv[])
 	if (opt_p)
 		write_positions(opt_p);
 	if (got_alarm_sig) {
-		fprintf(stderr, "Timeout waiting for log entries\n");
+		struct event_pattern *pattern;
+		struct logfile *file;
+
+		fprintf(stderr, "Timeout waiting for %s ",
+			list_is_last(good_patterns.next, &good_patterns) ?
+			  "pattern" : "patterns");
+		list_for_each_entry(pattern, &good_patterns, list) {
+			fprintf(stderr, "'%s'%s",
+				pattern->regex,
+				list_is_last(&pattern->list,
+					     &good_patterns) ? "" : ", ");
+		}
+		fprintf(stderr, " in ");
+		list_for_each_entry(file, &files, list) {
+			fprintf(stderr, "%s%s",
+				file->label,
+				list_is_last(&file->list, &files) ? "" : ", ");
+		}
+		fprintf(stderr, "\n");
 		return 1;
 	} else if (got_interrupt_sig)
 		return 1;

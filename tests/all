@@ -79,7 +79,7 @@ status: 1
 EOF
 
 check 'logscan -y abc -y def -n xyz -n zyx -ppos -t 0.1 one two || echo status: $?' <<EOF
-Timeout waiting for log entries
+Timeout waiting for patterns 'abc', 'def' in one, two
 status: 1
 EOF
 

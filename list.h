@@ -168,4 +168,15 @@ static inline int list_empty(const struct list_head *head)
 	     &pos->member != (head); 	\
 	     pos = list_entry(pos->member.prev, typeof(*pos), member))
 
+/**
+ * list_is_last - tests whether @list is the last entry in list @head
+ * @list: the entry to test
+ * @head: the head of the list
+ */
+static inline int list_is_last(const struct list_head *list,
+			       const struct list_head *head)
+{
+	return list->next == head;
+}
+
 #endif  /* _LIST_H */
