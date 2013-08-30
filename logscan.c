@@ -24,12 +24,15 @@ static struct option long_options[] = {
 	{"yes",      required_argument, 0, 'y' },
 	{"no",       required_argument, 0, 'n' },
 	{"timeout",  required_argument, 0, 't' },
-	{"version",  no_argument, 0, 'v' },
+	{"silent",  no_argument, 0, 's' },
+	{"verbose",  no_argument, 0, 'v' },
+	{"version",  no_argument, 0, 1 },
 	{"help",     no_argument, 0, 'h' },
 	{}
 };
 
 const char *progname;
+bool opt_silent, opt_verbose;
 int inotify_fd = -1;
 
 static void usage(const char *fmt, ...)
@@ -237,15 +240,17 @@ static void scan_line(struct logfile *file, char *line)
 		if (!regexec(&pattern->reg, line, 0, NULL, 0)) {
 			pattern->matches[file->index]++;
 			file->done = all_matched(&good_patterns, file->index);
-			printf("Pattern '%s' matches at %s:%u\n",
-			       pattern->regex, file->label, file->line + 1);
+			if (opt_verbose)
+				printf("Pattern '%s' matches at %s:%u\n",
+				       pattern->regex, file->label, file->line + 1);
 		}
 	}
 	list_for_each_entry(pattern, &bad_patterns, list) {
 		if (!regexec(&pattern->reg, line, 0, NULL, 0)) {
-			fprintf(stderr, "Unexpected pattern '%s' "
-					"matches at %s:%u\n",
-			       pattern->regex, file->label, file->line + 1);
+			if (!opt_silent)
+				fprintf(stderr, "Unexpected pattern '%s' "
+						"matches at %s:%u\n",
+				       pattern->regex, file->label, file->line + 1);
 			pattern->matches[file->index]++;
 			file->done = true;
 		}
@@ -462,7 +467,7 @@ int main(int argc, char *argv[])
 	for(;;) {
 		int c;
 
-		c = getopt_long(argc, argv, "y:n:p:t:vh", long_options, NULL);
+		c = getopt_long(argc, argv, "y:n:p:t:svh", long_options, NULL);
 		if (c == -1)
 			break;
 
@@ -479,7 +484,13 @@ int main(int argc, char *argv[])
 		case 'p':
 			opt_p = optarg;
 			break;
+		case 's':
+			opt_silent = true;
+			break;
 		case 'v':
+			opt_verbose = true;
+			break;
+		case 1:
 			printf("%s %s\n", PACKAGE_NAME, PACKAGE_VERSION);
 			exit(0);
 		case 'h':
@@ -536,22 +547,24 @@ int main(int argc, char *argv[])
 		struct event_pattern *pattern;
 		struct logfile *file;
 
-		fprintf(stderr, "Timeout waiting for %s ",
-			list_is_last(good_patterns.next, &good_patterns) ?
-			  "pattern" : "patterns");
-		list_for_each_entry(pattern, &good_patterns, list) {
-			fprintf(stderr, "'%s'%s",
-				pattern->regex,
-				list_is_last(&pattern->list,
-					     &good_patterns) ? "" : ", ");
+		if (!opt_silent) {
+			fprintf(stderr, "Timeout waiting for %s ",
+				list_is_last(good_patterns.next, &good_patterns) ?
+				  "pattern" : "patterns");
+			list_for_each_entry(pattern, &good_patterns, list) {
+				fprintf(stderr, "'%s'%s",
+					pattern->regex,
+					list_is_last(&pattern->list,
+						     &good_patterns) ? "" : ", ");
+			}
+			fprintf(stderr, " in ");
+			list_for_each_entry(file, &files, list) {
+				fprintf(stderr, "%s%s",
+					file->label,
+					list_is_last(&file->list, &files) ? "" : ", ");
+			}
+			fprintf(stderr, "\n");
 		}
-		fprintf(stderr, " in ");
-		list_for_each_entry(file, &files, list) {
-			fprintf(stderr, "%s%s",
-				file->label,
-				list_is_last(&file->list, &files) ? "" : ", ");
-		}
-		fprintf(stderr, "\n");
 		return 1;
 	} else if (got_interrupt_sig)
 		return 1;

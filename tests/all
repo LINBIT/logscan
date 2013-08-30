@@ -36,7 +36,14 @@ Unexpected pattern 'xyz' matches at one:1
 status: 1
 EOF
 
+check 'logscan --silent -y abc -y def -n xyz -n zyx one || echo status: $?' <<EOF
+status: 1
+EOF
+
 check 'logscan -y abc -y def -n xyz -n zyx two' <<EOF
+EOF
+
+check 'logscan --verbose -y abc -y def -n xyz -n zyx two' <<EOF
 Pattern 'abc' matches at two:1
 Pattern 'def' matches at two:2
 EOF
@@ -49,14 +56,14 @@ EOF
 # --------------------------------------------------------------
 # Checking multiple files at once
 
-check '(logscan -y abc -y def -n xyz -n zyx one two 2>&1 || echo status: $?) | sort' <<EOF
+check '(logscan --verbose -y abc -y def -n xyz -n zyx one two 2>&1 || echo status: $?) | sort' <<EOF
 Pattern 'abc' matches at two:1
 Pattern 'def' matches at two:2
 Unexpected pattern 'xyz' matches at one:1
 status: 1
 EOF
 
-check '(logscan -y abc -y def -n xyz -n zyx -ppos one two 2>&1 || echo status: $?) | sort' <<EOF
+check '(logscan --verbose -y abc -y def -n xyz -n zyx -ppos one two 2>&1 || echo status: $?) | sort' <<EOF
 Pattern 'abc' matches at two:1
 Pattern 'def' matches at two:2
 Unexpected pattern 'xyz' matches at one:1
@@ -64,14 +71,14 @@ status: 1
 EOF
 
 
-check '(logscan -y abc -y def -n xyz -n zyx -ppos one two 2>&1 || echo status: $?) | sort' <<EOF
+check '(logscan --verbose -y abc -y def -n xyz -n zyx -ppos one two 2>&1 || echo status: $?) | sort' <<EOF
 Pattern 'abc' matches at one:4
 Pattern 'abc' matches at two:4
 Pattern 'def' matches at one:3
 Pattern 'def' matches at two:5
 EOF
 
-check '(logscan -y abc -y def -n xyz -n zyx -ppos one two 2>&1 || echo status: $?) | sort' <<EOF
+check '(logscan --verbose -y abc -y def -n xyz -n zyx -ppos one two 2>&1 || echo status: $?) | sort' <<EOF
 Pattern 'abc' matches at one:7
 Pattern 'def' matches at one:6
 Unexpected pattern 'zyx' matches at two:7
@@ -88,14 +95,14 @@ EOF
 
 ( sleep 0.1; echo abc; sleep 0.1; echo def ) >> one &
 
-check 'logscan -y abc -y def -n xyz -n zyx -ppos -t 0.3 one' <<EOF
+check 'logscan --verbose -y abc -y def -n xyz -n zyx -ppos -t 0.3 one' <<EOF
 Pattern 'abc' matches at one:8
 Pattern 'def' matches at one:9
 EOF
 
 ( echo def; echo abc ) >> two
 
-check 'logscan -y abc -y def -n xyz -n zyx -ppos two' <<EOF
+check 'logscan --verbose -y abc -y def -n xyz -n zyx -ppos two' <<EOF
 Pattern 'def' matches at two:8
 Pattern 'abc' matches at two:9
 EOF
