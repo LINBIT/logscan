@@ -24,7 +24,7 @@ static struct option long_options[] = {
 	{"yes",      required_argument, 0, 'y' },
 	{"no",       required_argument, 0, 'n' },
 	{"timeout",  required_argument, 0, 't' },
-	{"silent",  no_argument, 0, 's' },
+	{"silent",   no_argument, 0, 's' },
 	{"verbose",  no_argument, 0, 'v' },
 	{"version",  no_argument, 0, 1 },
 	{"help",     no_argument, 0, 'h' },
@@ -48,7 +48,7 @@ static void usage(const char *fmt, ...)
 		fputs(
 "Check for patterns in log files.\n"
 "\n"
-"Watch one or more logfiles, and check for regular expression patterns.\n"
+"Watch one or more logfiles and check for regular expression patterns.\n"
 "This utility reports which patterns match where, and terminates when all\n"
 "positive matches (-y) or a negative match (-n) was found in each logfile.\n"
 "\n"
@@ -66,11 +66,11 @@ static void usage(const char *fmt, ...)
 "    match.\n"
 "\n"
 "  -t timeout, --timeout=timeout\n"
-"    Only wait for the specified amount of time, and fail if some of the\n"
-"    patterns do not match before then.\n"
+"    Only wait for the specified amount of time and fail if some of the\n"
+"    expected patterns do not match before then.\n"
 "\n"
 "  -p filename\n"
-"    Remember the positions of the last matches in a file, and resume\n"
+"    Remember the positions of the last matches in a file and resume\n"
 "    the next match from there.\n", fmt ? stdout : stderr);
 	}
 	exit(fmt ? 2 : 0);
