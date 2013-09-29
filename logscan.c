@@ -456,6 +456,34 @@ static void set_timeout(const char *arg)
 	}
 }
 
+static void print_missing_matches(const char *why)
+{
+	struct logfile *file;
+
+	list_for_each_entry(file, &files, list) {
+		struct event_pattern *pattern;
+		bool printed = false;
+
+		if (file->done)
+			continue;
+		list_for_each_entry(pattern, &good_patterns, list) {
+			if (pattern->matches[file->index])
+				continue;
+			if (why) {
+				fputs(why, stderr);
+				why = NULL;
+			}
+			if (!printed) {
+				fprintf(stderr, "%s: '%s'", file->label, pattern->regex);
+				printed = true;
+			} else
+				fprintf(stderr, ", '%s'", pattern->regex);
+		}
+		if (printed)
+			fprintf(stderr, "\n");
+	}
+}
+
 int main(int argc, char *argv[])
 {
 	const char *opt_p = NULL, *opt_t = NULL;
@@ -544,27 +572,8 @@ int main(int argc, char *argv[])
 	if (opt_p)
 		write_positions(opt_p);
 	if (got_alarm_sig) {
-		struct event_pattern *pattern;
-		struct logfile *file;
-
-		if (!opt_silent) {
-			fprintf(stderr, "Timeout waiting for %s ",
-				list_is_last(good_patterns.next, &good_patterns) ?
-				  "pattern" : "patterns");
-			list_for_each_entry(pattern, &good_patterns, list) {
-				fprintf(stderr, "'%s'%s",
-					pattern->regex,
-					list_is_last(&pattern->list,
-						     &good_patterns) ? "" : ", ");
-			}
-			fprintf(stderr, " in ");
-			list_for_each_entry(file, &files, list) {
-				fprintf(stderr, "%s%s",
-					file->label,
-					list_is_last(&file->list, &files) ? "" : ", ");
-			}
-			fprintf(stderr, "\n");
-		}
+		if (!opt_silent)
+			print_missing_matches("Timeout waiting for patterns to match -- not matched:\n");
 		return 1;
 	} else if (got_interrupt_sig)
 		return 1;

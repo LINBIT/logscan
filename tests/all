@@ -85,8 +85,12 @@ Unexpected pattern 'zyx' matches at two:7
 status: 1
 EOF
 
+echo abc >> one
+echo def >> two
 check 'logscan -y abc -y def -n xyz -n zyx -ppos -t 0.1 one two || echo status: $?' <<EOF
-Timeout waiting for patterns 'abc', 'def' in one, two
+Timeout waiting for patterns to match -- not matched:
+one: 'def'
+two: 'abc'
 status: 1
 EOF
 
@@ -96,13 +100,13 @@ EOF
 ( sleep 0.1; echo abc; sleep 0.1; echo def ) >> one &
 
 check 'logscan --verbose -y abc -y def -n xyz -n zyx -ppos -t 0.3 one' <<EOF
-Pattern 'abc' matches at one:8
-Pattern 'def' matches at one:9
+Pattern 'abc' matches at one:9
+Pattern 'def' matches at one:10
 EOF
 
 ( echo def; echo abc ) >> two
 
 check 'logscan --verbose -y abc -y def -n xyz -n zyx -ppos two' <<EOF
-Pattern 'def' matches at two:8
-Pattern 'abc' matches at two:9
+Pattern 'def' matches at two:9
+Pattern 'abc' matches at two:10
 EOF
