@@ -205,13 +205,27 @@ static void allocate_matches(struct event_pattern *pattern,
 	memset(pattern->matches, 0, size);
 }
 
-static bool all_matched(struct list_head *patterns, int index)
+static bool all_matched_for_file(struct list_head *patterns, int index)
 {
 	struct event_pattern *pattern;
 
 	list_for_each_entry(pattern, patterns, list) {
 		if (!pattern->matches[index])
 			return false;
+	}
+	return true;
+}
+
+static bool all_matched(struct list_head *patterns, int number_of_files)
+{
+	struct event_pattern *pattern;
+
+	list_for_each_entry(pattern, patterns, list) {
+		int index;
+
+		for (index = 0; index < number_of_files; index++)
+			if (!pattern->matches[index])
+				return false;
 	}
 	return true;
 }
@@ -239,7 +253,7 @@ static void scan_line(struct logfile *file, char *line)
 	list_for_each_entry(pattern, &good_patterns, list) {
 		if (!regexec(&pattern->reg, line, 0, NULL, 0)) {
 			pattern->matches[file->index]++;
-			file->done = all_matched(&good_patterns, file->index);
+			file->done = all_matched_for_file(&good_patterns, file->index);
 			if (opt_verbose)
 				printf("Pattern '%s' matches at %s:%u\n",
 				       pattern->regex, file->label, file->line + 1);
