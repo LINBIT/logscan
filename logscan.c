@@ -33,6 +33,7 @@ static struct option long_options[] = {
 
 const char *progname;
 bool opt_silent, opt_verbose;
+bool with_timeout = true;
 int inotify_fd = -1;
 
 static void usage(const char *fmt, ...)
@@ -67,7 +68,9 @@ static void usage(const char *fmt, ...)
 "\n"
 "  -t timeout, --timeout=timeout\n"
 "    Only wait for the specified amount of time and fail if some of the\n"
-"    expected patterns do not match before then.\n"
+"    expected patterns do not match before then.  The default is to wait\n"
+"    forever; a value of 0 means not to wait.  If this option is not given,\n"
+"    the value of the LOGSCAN_TIMEOUT environment variable is used instead.\n"
 "\n"
 "  -p filename\n"
 "    Remember the positions of the last matches in a file and resume\n"
@@ -431,7 +434,7 @@ static void scan(void)
 
 	list_for_each_entry(file, &files, list)
 		scan_file(file);
-	if (!all_done()) {
+	if (with_timeout && !all_done()) {
 		inotify_fd = inotify_init1(IN_NONBLOCK);
 		if (inotify_fd < 0)
 			fatal("%s: waiting for log entries: %s",
@@ -462,8 +465,9 @@ static void set_timeout(const char *arg)
 	frac = modf(t, &t);
 	value.it_value.tv_sec = floor(t);
 	value.it_value.tv_usec = floor(frac * 1e6);
-	if (value.it_value.tv_sec != 0 || value.it_value.tv_usec != 0) {
-		set_signals();
+	if (value.it_value.tv_sec == 0 && value.it_value.tv_usec == 0)
+		with_timeout = false;
+	else {
 		ret = setitimer(ITIMER_REAL, &value, NULL);
 		if (ret != 0)
 			fatal("setting timer");
@@ -591,6 +595,12 @@ int main(int argc, char *argv[])
 		return 1;
 	} else if (got_interrupt_sig)
 		return 1;
-	else
-		return any_matched(&bad_patterns, number_of_files) ? 1 : 0;
+	else {
+		bool good_okay = all_matched(&good_patterns, number_of_files);
+		bool bad_okay = !any_matched(&bad_patterns, number_of_files);
+
+		if (!good_okay && !opt_silent)
+			print_missing_matches("Patterns not matched:\n");
+		return (good_okay && bad_okay) ? 0 : 1;
+	}
 }

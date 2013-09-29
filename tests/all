@@ -54,6 +54,18 @@ status: 1
 EOF
 
 # --------------------------------------------------------------
+# Checking without waiting
+
+check 'logscan -n xxx -t 0 one || echo status: $?' <<EOF
+EOF
+
+check 'logscan -y xxx -t 0 one || echo status: $?' <<EOF
+Patterns not matched:
+one: 'xxx'
+status: 1
+EOF
+
+# --------------------------------------------------------------
 # Checking multiple files at once
 
 check '(logscan --verbose -y abc -y def -n xyz -n zyx one two 2>&1 || echo status: $?) | sort' <<EOF
