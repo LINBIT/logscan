@@ -122,3 +122,13 @@ check 'logscan --verbose -y abc -y def -n xyz -n zyx -ppos two' <<EOF
 Pattern 'def' matches at two:9
 Pattern 'abc' matches at two:10
 EOF
+
+# ----------------------------------------------------------------
+# Filter option
+
+check 'logscan --verbose -f a -y abc one || echo status: $?' <<EOF
+Pattern 'abc' matches at one:4
+EOF
+
+check 'logscan -f a -n acb one -t 0 || echo status: $?' <<EOF
+EOF

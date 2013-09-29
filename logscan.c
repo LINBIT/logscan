@@ -23,6 +23,7 @@
 static struct option long_options[] = {
 	{"yes",      required_argument, 0, 'y' },
 	{"no",       required_argument, 0, 'n' },
+	{"filter",   required_argument, 0, 'f' },
 	{"timeout",  required_argument, 0, 't' },
 	{"silent",   no_argument, 0, 's' },
 	{"verbose",  no_argument, 0, 'v' },
@@ -66,6 +67,9 @@ static void usage(const char *fmt, ...)
 "    option can be used multiple times; none of the patterns must\n"
 "    match.\n"
 "\n"
+"  -f pattern, --filter=pattern\n"
+"    Only look at lines matching this regular expression pattern.\n"
+"\n"
 "  -t timeout, --timeout=timeout\n"
 "    Only wait for the specified amount of time and fail if some of the\n"
 "    expected patterns do not match before then.  The default is to wait\n"
@@ -103,6 +107,7 @@ LIST_HEAD(files);
 LIST_HEAD(other_files);
 LIST_HEAD(good_patterns);
 LIST_HEAD(bad_patterns);
+LIST_HEAD(filter_patterns);
 
 static void new_pattern(const char *regex, struct list_head *list)
 {
@@ -253,6 +258,10 @@ static void scan_line(struct logfile *file, char *line)
 	struct event_pattern *pattern;
 
 	*nl = 0;
+	list_for_each_entry(pattern, &filter_patterns, list) {
+		if (regexec(&pattern->reg, line, 0, NULL, 0))
+			goto out;
+	}
 	list_for_each_entry(pattern, &good_patterns, list) {
 		if (!regexec(&pattern->reg, line, 0, NULL, 0)) {
 			pattern->matches[file->index]++;
@@ -272,6 +281,8 @@ static void scan_line(struct logfile *file, char *line)
 			file->done = true;
 		}
 	}
+
+    out:
 	*nl = '\n';
 
 	file->line++;
@@ -513,7 +524,7 @@ int main(int argc, char *argv[])
 	for(;;) {
 		int c;
 
-		c = getopt_long(argc, argv, "y:n:p:t:svh", long_options, NULL);
+		c = getopt_long(argc, argv, "y:n:f:p:t:svh", long_options, NULL);
 		if (c == -1)
 			break;
 
@@ -523,6 +534,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'n':
 			new_pattern(optarg, &bad_patterns);
+			break;
+		case 'f':
+			new_pattern(optarg, &filter_patterns);
 			break;
 		case 't':
 			opt_t = optarg;
