@@ -48,7 +48,7 @@ static void usage(const char *fmt, ...)
 		va_end(ap);
 	} else {
 		fputs(
-"Check for patterns in log files.\n"
+PACKAGE_NAME " - Scan for patterns in log files\n"
 "\n"
 "Watch one or more logfiles and check for regular expression patterns.\n"
 "This utility reports which patterns match where, and terminates when all\n"
@@ -78,7 +78,13 @@ static void usage(const char *fmt, ...)
 "\n"
 "  -p filename\n"
 "    Remember the positions of the last matches in a file and resume\n"
-"    the next match from there.\n", fmt ? stdout : stderr);
+"    the next match from there.\n"
+"\n"
+"  --silent, --verbose\n"
+"    Do not print any messages about unexpected patterns or timeouts\n"
+"    (--silent), or also report when expected patterns are matched\n"
+"    (--verbose).\n"
+"\n", fmt ? stdout : stderr);
 	}
 	exit(fmt ? 2 : 0);
 }
