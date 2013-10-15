@@ -48,7 +48,7 @@ Pattern 'abc' matches at two:1
 Pattern 'def' matches at two:2
 EOF
 
-check 'logscan -y abc -y def -n xyz -n zyx label1:one || echo status: $?' <<EOF
+check 'logscan -y abc -y def -n xyz -n zyx --label=label1 one || echo status: $?' <<EOF
 Unexpected pattern 'xyz' matches at label1:1
 status: 1
 EOF

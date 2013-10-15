@@ -37,10 +37,11 @@ static struct option long_options[] = {
 	{"yes",      required_argument, 0, 'y' },
 	{"no",       required_argument, 0, 'n' },
 	{"filter",   required_argument, 0, 'f' },
+	{"label",    required_argument, 0, 2 },
 	{"timeout",  required_argument, 0, 't' },
 	{"silent",   no_argument, 0, 's' },
 	{"verbose",  no_argument, 0, 'v' },
-	{"version",  no_argument, 0, 1 },
+	{"version",  no_argument, 0, 3 },
 	{"help",     no_argument, 0, 'h' },
 	{}
 };
@@ -68,7 +69,7 @@ PACKAGE_NAME " - Scan for patterns in log files\n"
 "positive matches (-y) or a negative match (-n) was found in each logfile.\n"
 "\n"
 "USAGE\n"
-"  " PACKAGE_NAME " [options] {[label:]filename} ...\n"
+"  " PACKAGE_NAME " [options] {filename} ...\n"
 "\n"
 "OPTIONS\n"
 "  -y pattern, --yes=pattern\n"
@@ -82,6 +83,9 @@ PACKAGE_NAME " - Scan for patterns in log files\n"
 "\n"
 "  -f pattern, --filter=pattern\n"
 "    Only look at lines matching this regular expression pattern.\n"
+"\n"
+"  --label label\n"
+"    Use the specified label instead of the filename for the next logfile.\n"
 "\n"
 "  -t timeout, --timeout=timeout\n"
 "    Only wait for the specified amount of time and fail if some of the\n"
@@ -532,10 +536,27 @@ static void print_missing_matches(const char *why)
 	}
 }
 
+void logfile_arg(const char *name, const char *label, unsigned int index) {
+	struct logfile *file;
+
+	file = xalloc(sizeof(*file));
+	file->label = label ? label : name;
+	file->name = name;
+	file->fd = open(file->name, O_RDONLY | O_NONBLOCK);
+	if (file->fd < 0)
+		fatal("%s: %s: %s",
+		      progname, file->name, strerror(errno));
+	file->offset = 0;
+	init_buffer(&file->buffer, 1 << 12);
+	file->index = index;
+	file->done = false;
+	list_add_tail(&file->list, &files);
+}
+
 int main(int argc, char *argv[])
 {
-	const char *opt_p = NULL, *opt_t = NULL;
-	unsigned int number_of_files;
+	const char *opt_p = NULL, *opt_t = NULL, *opt_label = NULL;
+	unsigned int number_of_files = 0;
 	struct event_pattern *pattern;
 
 	progname = basename(argv[0]);
@@ -543,7 +564,7 @@ int main(int argc, char *argv[])
 	for(;;) {
 		int c;
 
-		c = getopt_long(argc, argv, "y:n:f:p:t:svh", long_options, NULL);
+		c = getopt_long(argc, argv, "-y:n:f:p:t:svh", long_options, NULL);
 		if (c == -1)
 			break;
 
@@ -570,6 +591,13 @@ int main(int argc, char *argv[])
 			opt_verbose = true;
 			break;
 		case 1:
+			logfile_arg(optarg, opt_label, number_of_files++);
+			opt_label = NULL;
+			break;
+		case 2:
+			opt_label = optarg;
+			break;
+		case 3:
 			printf("%s %s\n", PACKAGE_NAME, PACKAGE_VERSION);
 			exit(0);
 		case 'h':
@@ -578,36 +606,12 @@ int main(int argc, char *argv[])
 			exit(2);
 		}
 	}
-	if (optind == argc)
+	if (list_empty(&files))
 		usage("command line arguments missing");
 	if (list_empty(&good_patterns) && list_empty(&bad_patterns))
 		usage("no search patterns specified");
 	if (!opt_t)
 		opt_t = getenv("LOGSCAN_TIMEOUT");
-
-	for (number_of_files = 0; optind < argc; optind++) {
-		struct logfile *file;
-		char *c = strchr(argv[optind], ':');
-
-		file = xalloc(sizeof(*file));
-		if (c) {
-			*c = 0;
-			file->label = argv[optind];
-			file->name = c + 1;
-		} else {
-			file->label = argv[optind];
-			file->name = argv[optind];
-		}
-		file->fd = open(file->name, O_RDONLY | O_NONBLOCK);
-		if (file->fd < 0)
-			fatal("%s: %s: %s",
-			      progname, file->name, strerror(errno));
-		file->offset = 0;
-		init_buffer(&file->buffer, 1 << 12);
-		file->index = number_of_files++;
-		file->done = false;
-		list_add_tail(&file->list, &files);
-	}
 
 	list_for_each_entry(pattern, &good_patterns, list)
 		allocate_matches(pattern, number_of_files);
