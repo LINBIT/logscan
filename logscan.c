@@ -207,7 +207,7 @@ static void write_positions(const char *dumpfile)
 	char *tmpfile;
 	FILE *f;
 
-	tmpfile = xalloc(strlen(dumpfile + 2));
+	tmpfile = xalloc(strlen(dumpfile) + 2);
 	sprintf(tmpfile, "%s~", dumpfile);
 	f = fopen(tmpfile, "w");
 	if (!f)
