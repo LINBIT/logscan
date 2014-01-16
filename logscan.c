@@ -127,7 +127,7 @@ struct event_pattern {
 	unsigned int *matches;
 };
 
-LIST_HEAD(files);
+LIST_HEAD(logfiles);
 LIST_HEAD(other_files);
 LIST_HEAD(good_patterns);
 LIST_HEAD(bad_patterns);
@@ -162,7 +162,7 @@ static void read_positions(const char *dumpfile)
 		fatal("%s: %s: %s", progname, dumpfile, strerror(errno));
 	}
 	for(;;) {
-		struct logfile *file;
+		struct logfile *logfile;
 		unsigned int line;
 		unsigned long offset;
 		char *name = NULL, *c;
@@ -180,22 +180,22 @@ static void read_positions(const char *dumpfile)
 		if (!*name)
 			fatal("%s: %s: Parse error", progname, dumpfile);
 
-		list_for_each_entry(file, &files, list) {
-			if (!strcmp(name, file->name)) {
-				file->line = line;
-				file->offset = offset;
-				if (lseek(file->fd, offset, SEEK_SET) == (off_t) -1)
+		list_for_each_entry(logfile, &logfiles, list) {
+			if (!strcmp(name, logfile->name)) {
+				logfile->line = line;
+				logfile->offset = offset;
+				if (lseek(logfile->fd, offset, SEEK_SET) == (off_t) -1)
 					fatal("%s: %s: failed to seek: %s",
 					      progname, name, strerror(errno));
 				goto next;
 			}
 		}
-		file = xalloc(sizeof(*file));
-		file->name = name;
+		logfile = xalloc(sizeof(*logfile));
+		logfile->name = name;
 		name = NULL;
-		file->line = line;
-		file->offset = offset;
-		list_add_tail(&file->list, &other_files);
+		logfile->line = line;
+		logfile->offset = offset;
+		list_add_tail(&logfile->list, &other_files);
 	    next:
 		free(name);
 	}
@@ -204,7 +204,7 @@ static void read_positions(const char *dumpfile)
 
 static void write_positions(const char *dumpfile)
 {
-	struct logfile *file;
+	struct logfile *logfile;
 	char *tmpfile;
 	FILE *f;
 
@@ -214,12 +214,12 @@ static void write_positions(const char *dumpfile)
 	if (!f)
 		fatal("%s: %s: %s",
 		      progname, tmpfile, strerror(errno));
-	list_for_each_entry(file, &files, list)
+	list_for_each_entry(logfile, &logfiles, list)
 		fprintf(f, "%u %lu %s\n",
-			file->line, file->offset, file->name);
-	list_for_each_entry(file, &other_files, list)
+			logfile->line, logfile->offset, logfile->name);
+	list_for_each_entry(logfile, &other_files, list)
 		fprintf(f, "%u %lu %s\n",
-			file->line, file->offset, file->name);
+			logfile->line, logfile->offset, logfile->name);
 	if (fclose(f))
 		fatal("%s: %s: %s", progname, tmpfile, strerror(errno));
 	if (rename(tmpfile, dumpfile))
@@ -276,7 +276,7 @@ static bool any_matched(struct list_head *patterns, int number_of_files)
 	return false;
 }
 
-static void scan_line(struct logfile *file, char *line)
+static void scan_line(struct logfile *logfile, char *line)
 {
 	char *nl = strchr(line, '\n');
 	struct event_pattern *pattern;
@@ -288,11 +288,11 @@ static void scan_line(struct logfile *file, char *line)
 	}
 	list_for_each_entry(pattern, &good_patterns, list) {
 		if (!regexec(&pattern->reg, line, 0, NULL, 0)) {
-			pattern->matches[file->index]++;
-			file->done = all_matched_for_file(&good_patterns, file->index);
+			pattern->matches[logfile->index]++;
+			logfile->done = all_matched_for_file(&good_patterns, logfile->index);
 			if (opt_verbose)
 				printf("Pattern '%s' matches at %s:%u\n",
-				       pattern->regex, file->label, file->line + 1);
+				       pattern->regex, logfile->label, logfile->line + 1);
 		}
 	}
 	list_for_each_entry(pattern, &bad_patterns, list) {
@@ -300,17 +300,17 @@ static void scan_line(struct logfile *file, char *line)
 			if (!opt_silent)
 				fprintf(stderr, "Unexpected pattern '%s' "
 						"matches at %s:%u\n",
-				       pattern->regex, file->label, file->line + 1);
-			pattern->matches[file->index]++;
-			file->done = true;
+				       pattern->regex, logfile->label, logfile->line + 1);
+			pattern->matches[logfile->index]++;
+			logfile->done = true;
 		}
 	}
 
     out:
 	*nl = '\n';
 
-	file->line++;
-	file->offset += nl - line + 1;
+	logfile->line++;
+	logfile->offset += nl - line + 1;
 }
 
 char *get_next_line(struct buffer *buffer)
@@ -331,43 +331,43 @@ static void shift_buffer(struct buffer *buffer)
 	buffer->start = 0;
 }
 
-static void scan_file(struct logfile *file)
+static void scan_file(struct logfile *logfile)
 {
 	char *line;
 
-	while (!file->done) {
+	while (!logfile->done) {
 		ssize_t size;
 
-		line = get_next_line(&file->buffer);
+		line = get_next_line(&logfile->buffer);
 		if (line) {
-			scan_line(file, line);
+			scan_line(logfile, line);
 			continue;
 		}
-		shift_buffer(&file->buffer);
-		if (!buffer_available(&file->buffer))
-			grow_buffer(&file->buffer, 1 << 12);
-		size = read(file->fd, buffer_write_pos(&file->buffer),
-			    buffer_available(&file->buffer));
+		shift_buffer(&logfile->buffer);
+		if (!buffer_available(&logfile->buffer))
+			grow_buffer(&logfile->buffer, 1 << 12);
+		size = read(logfile->fd, buffer_write_pos(&logfile->buffer),
+			    buffer_available(&logfile->buffer));
 		if (size <= 0) {
 			if (size == 0 || (size < 0 && errno == EAGAIN))
 				break;
 			if (errno != EINTR)
 				fatal("%s: %s: %s",
-				      progname, file->name, strerror(errno));
+				      progname, logfile->name, strerror(errno));
 		} else
-			buffer_advance_write(&file->buffer, size);
+			buffer_advance_write(&logfile->buffer, size);
 	}
 }
 
-static void listen_for_changes(struct logfile *file)
+static void listen_for_changes(struct logfile *logfile)
 {
 	int ret;
 
-	ret = inotify_add_watch(inotify_fd, file->name, IN_MODIFY);
+	ret = inotify_add_watch(inotify_fd, logfile->name, IN_MODIFY);
 	if (ret < 0)
 		fatal("%s: watching %s: %s",
-		      progname, file->name, strerror(errno));
-	file->wd = ret;
+		      progname, logfile->name, strerror(errno));
+	logfile->wd = ret;
 }
 
 static volatile sig_atomic_t got_interrupt_sig;
@@ -430,7 +430,7 @@ struct logfile *next_event(void)
 {
 	for(;;) {
 		struct inotify_event event;
-		struct logfile *file;
+		struct logfile *logfile;
 		ssize_t ret;
 
 		ret = read(inotify_fd, &event, sizeof(event));
@@ -441,9 +441,9 @@ struct logfile *next_event(void)
 			ret = -1;
 		}
 		if (ret == sizeof(event)) {
-			list_for_each_entry(file, &files, list)
-				if (event.wd == file->wd)
-					return file;
+			list_for_each_entry(logfile, &logfiles, list)
+				if (event.wd == logfile->wd)
+					return logfile;
 		} else if (ret < 0 && errno != EAGAIN)
 			fatal("%s: waiting for log entries: %s",
 			      progname, strerror(errno));
@@ -455,34 +455,34 @@ struct logfile *next_event(void)
 
 static bool all_done(void)
 {
-	struct logfile *file;
+	struct logfile *logfile;
 
-	list_for_each_entry(file, &files, list)
-		if (!file->done)
+	list_for_each_entry(logfile, &logfiles, list)
+		if (!logfile->done)
 			return false;
 	return true;
 }
 
 static void scan(void)
 {
-	struct logfile *file;
+	struct logfile *logfile;
 
-	list_for_each_entry(file, &files, list)
-		scan_file(file);
+	list_for_each_entry(logfile, &logfiles, list)
+		scan_file(logfile);
 	if (with_timeout && !all_done()) {
 		inotify_fd = inotify_init1(IN_NONBLOCK);
 		if (inotify_fd < 0)
 			fatal("%s: waiting for log entries: %s",
 			      progname, strerror(errno));
-		list_for_each_entry(file, &files, list) {
-			listen_for_changes(file);
-			scan_file(file);
+		list_for_each_entry(logfile, &logfiles, list) {
+			listen_for_changes(logfile);
+			scan_file(logfile);
 		}
 		while (!all_done()) {
-			file = next_event();
-			if (!file)
+			logfile = next_event();
+			if (!logfile)
 				break;
-			scan_file(file);
+			scan_file(logfile);
 		}
 	}
 }
@@ -511,23 +511,23 @@ static void set_timeout(const char *arg)
 
 static void print_missing_matches(const char *why)
 {
-	struct logfile *file;
+	struct logfile *logfile;
 
-	list_for_each_entry(file, &files, list) {
+	list_for_each_entry(logfile, &logfiles, list) {
 		struct event_pattern *pattern;
 		bool printed = false;
 
-		if (file->done)
+		if (logfile->done)
 			continue;
 		list_for_each_entry(pattern, &good_patterns, list) {
-			if (pattern->matches[file->index])
+			if (pattern->matches[logfile->index])
 				continue;
 			if (why) {
 				fputs(why, stderr);
 				why = NULL;
 			}
 			if (!printed) {
-				fprintf(stderr, "%s: '%s'", file->label, pattern->regex);
+				fprintf(stderr, "%s: '%s'", logfile->label, pattern->regex);
 				printed = true;
 			} else
 				fprintf(stderr, ", '%s'", pattern->regex);
@@ -537,21 +537,21 @@ static void print_missing_matches(const char *why)
 	}
 }
 
-void logfile_arg(const char *name, const char *label, unsigned int index) {
-	struct logfile *file;
+void new_logfile(const char *name, const char *label, unsigned int index) {
+	struct logfile *logfile;
 
-	file = xalloc(sizeof(*file));
-	file->label = label ? label : name;
-	file->name = name;
-	file->fd = open(file->name, O_RDONLY | O_NONBLOCK);
-	if (file->fd < 0)
+	logfile = xalloc(sizeof(*logfile));
+	logfile->label = label ? label : name;
+	logfile->name = name;
+	logfile->fd = open(logfile->name, O_RDONLY | O_NONBLOCK);
+	if (logfile->fd < 0)
 		fatal("%s: %s: %s",
-		      progname, file->name, strerror(errno));
-	file->offset = 0;
-	init_buffer(&file->buffer, 1 << 12);
-	file->index = index;
-	file->done = false;
-	list_add_tail(&file->list, &files);
+		      progname, logfile->name, strerror(errno));
+	logfile->offset = 0;
+	init_buffer(&logfile->buffer, 1 << 12);
+	logfile->index = index;
+	logfile->done = false;
+	list_add_tail(&logfile->list, &logfiles);
 }
 
 int main(int argc, char *argv[])
@@ -592,7 +592,7 @@ int main(int argc, char *argv[])
 			opt_verbose = true;
 			break;
 		case 1:
-			logfile_arg(optarg, opt_label, number_of_files++);
+			new_logfile(optarg, opt_label, number_of_files++);
 			opt_label = NULL;
 			break;
 		case 2:
@@ -607,7 +607,7 @@ int main(int argc, char *argv[])
 			exit(2);
 		}
 	}
-	if (list_empty(&files))
+	if (list_empty(&logfiles))
 		usage("command line arguments missing");
 	if (list_empty(&good_patterns) && list_empty(&bad_patterns))
 		usage("no search patterns specified");
