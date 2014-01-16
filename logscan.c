@@ -69,7 +69,7 @@ PACKAGE_NAME " - Scan for patterns in log files\n"
 "positive matches (-y) or a negative match (-n) was found in each logfile.\n"
 "\n"
 "USAGE\n"
-"  " PACKAGE_NAME " [options] {filename} ...\n"
+"  " PACKAGE_NAME " [global options] { {logfile} [local options] } ...\n"
 "\n"
 "OPTIONS\n"
 "  -y pattern, --yes=pattern\n"
@@ -85,7 +85,8 @@ PACKAGE_NAME " - Scan for patterns in log files\n"
 "    Only look at lines matching this regular expression pattern.\n"
 "\n"
 "  --label label\n"
-"    Use the specified label instead of the filename for the next logfile.\n"
+"    Use the specified label instead of the file name.  Can only be used as a\n"
+"    local option.\n"
 "\n"
 "  -t timeout, --timeout=timeout\n"
 "    Only wait for the specified amount of time (in seconds) and fail if\n"
@@ -537,11 +538,11 @@ static void print_missing_matches(const char *why)
 	}
 }
 
-void new_logfile(const char *name, const char *label, unsigned int index) {
+void new_logfile(const char *name, unsigned int index) {
 	struct logfile *logfile;
 
 	logfile = xalloc(sizeof(*logfile));
-	logfile->label = label ? label : name;
+	logfile->label = name;
 	logfile->name = name;
 	logfile->fd = open(logfile->name, O_RDONLY | O_NONBLOCK);
 	if (logfile->fd < 0)
@@ -554,9 +555,13 @@ void new_logfile(const char *name, const char *label, unsigned int index) {
 	list_add_tail(&logfile->list, &logfiles);
 }
 
+static struct logfile *last_logfile(void) {
+	return list_last_entry(&logfiles, struct logfile, list);
+}
+
 int main(int argc, char *argv[])
 {
-	const char *opt_p = NULL, *opt_t = NULL, *opt_label = NULL;
+	const char *opt_p = NULL, *opt_t = NULL;
 	unsigned int number_of_files = 0;
 	struct event_pattern *pattern;
 
@@ -592,11 +597,12 @@ int main(int argc, char *argv[])
 			opt_verbose = true;
 			break;
 		case 1:
-			new_logfile(optarg, opt_label, number_of_files++);
-			opt_label = NULL;
+			new_logfile(optarg, number_of_files++);
 			break;
 		case 2:
-			opt_label = optarg;
+			if (list_empty(&logfiles))
+				usage("option --label must follow a log file name");
+			last_logfile()->label = optarg;
 			break;
 		case 3:
 			printf("%s %s\n", PACKAGE_NAME, PACKAGE_VERSION);
