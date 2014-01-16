@@ -1,7 +1,14 @@
 /*
+ * - Move the patterns into struct logfile, turn "matches" into "matched"
+ * - copy the global patterns for each new logfile
+ * - Find all occurrences of the same logfile; sort them by offset
+ * - Start scanning for patterns from there
+ */
+
+/*
    Author: Andreas Gruenbacher <agruen@linbit.com>
 
-   Copyright (C) 2013 LINBIT HA-Solutions GmbH, http://www.linbit.com
+   Copyright (C) 2013, 2014 LINBIT HA-Solutions GmbH, http://www.linbit.com
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -108,6 +115,12 @@ PACKAGE_NAME " - Scan for patterns in log files\n"
 	exit(fmt ? 2 : 0);
 }
 
+struct posfile {
+	struct list_head list;
+	const char *name;
+	struct list_head other_logfiles;
+};
+
 struct logfile {
 	struct list_head list;
 	const char *label;
@@ -118,6 +131,7 @@ struct logfile {
 	struct buffer buffer;
 	unsigned int index;
 	unsigned int wd;  /* inotify watch descriptor */
+	struct posfile *posfile;
 	bool done;
 };
 
@@ -129,7 +143,7 @@ struct event_pattern {
 };
 
 LIST_HEAD(logfiles);
-LIST_HEAD(other_files);
+LIST_HEAD(posfiles);
 LIST_HEAD(good_patterns);
 LIST_HEAD(bad_patterns);
 LIST_HEAD(filter_patterns);
@@ -152,15 +166,15 @@ static void new_pattern(const char *regex, struct list_head *list)
 	list_add_tail(&pattern->list, list);
 }
 
-static void read_positions(const char *dumpfile)
+static void read_posfile(struct posfile *posfile)
 {
 	FILE *f;
 
-	f = fopen(dumpfile, "r");
+	f = fopen(posfile->name, "r");
 	if (!f) {
 		if (errno == ENOENT)
 			return;
-		fatal("%s: %s: %s", progname, dumpfile, strerror(errno));
+		fatal("%s: %s: %s", progname, posfile->name, strerror(errno));
 	}
 	for(;;) {
 		struct logfile *logfile;
@@ -174,15 +188,16 @@ static void read_positions(const char *dumpfile)
 		if (ret == EOF && feof(f))
 			break;
 		if (ret != 2 || getline(&name, &size, f) < 0)
-			fatal("%s: %s: Parse error", progname, dumpfile);
+			fatal("%s: %s: Parse error", progname, posfile->name);
 		c = strrchr(name, '\n');
 		if (c)
 			*c = 0;
 		if (!*name)
-			fatal("%s: %s: Parse error", progname, dumpfile);
+			fatal("%s: %s: Parse error", progname, posfile->name);
 
 		list_for_each_entry(logfile, &logfiles, list) {
-			if (!strcmp(name, logfile->name)) {
+			if (logfile->posfile == posfile &&
+			    !strcmp(name, logfile->name)) {
 				logfile->line = line;
 				logfile->offset = offset;
 				if (lseek(logfile->fd, offset, SEEK_SET) == (off_t) -1)
@@ -196,37 +211,54 @@ static void read_positions(const char *dumpfile)
 		name = NULL;
 		logfile->line = line;
 		logfile->offset = offset;
-		list_add_tail(&logfile->list, &other_files);
+		list_add_tail(&logfile->list, &posfile->other_logfiles);
 	    next:
 		free(name);
 	}
 	fclose(f);
 }
 
-static void write_positions(const char *dumpfile)
+static void read_posfiles(void)
+{
+	struct posfile *posfile;
+
+	list_for_each_entry(posfile, &posfiles, list)
+		read_posfile(posfile);
+}
+
+static void write_posfile(struct posfile *posfile)
 {
 	struct logfile *logfile;
 	char *tmpfile;
 	FILE *f;
 
-	tmpfile = xalloc(strlen(dumpfile) + 2);
-	sprintf(tmpfile, "%s~", dumpfile);
+	tmpfile = xalloc(strlen(posfile->name) + 2);
+	sprintf(tmpfile, "%s~", posfile->name);
 	f = fopen(tmpfile, "w");
 	if (!f)
 		fatal("%s: %s: %s",
 		      progname, tmpfile, strerror(errno));
 	list_for_each_entry(logfile, &logfiles, list)
-		fprintf(f, "%u %lu %s\n",
-			logfile->line, logfile->offset, logfile->name);
-	list_for_each_entry(logfile, &other_files, list)
+		if (logfile->posfile == posfile)
+			fprintf(f, "%u %lu %s\n",
+				logfile->line, logfile->offset, logfile->name);
+	list_for_each_entry(logfile, &posfile->other_logfiles, list)
 		fprintf(f, "%u %lu %s\n",
 			logfile->line, logfile->offset, logfile->name);
 	if (fclose(f))
 		fatal("%s: %s: %s", progname, tmpfile, strerror(errno));
-	if (rename(tmpfile, dumpfile))
+	if (rename(tmpfile, posfile->name))
 		fatal("%s: Renaming file %s to %s: %s",
-		      progname, tmpfile, dumpfile, strerror(errno));
+		      progname, tmpfile, posfile->name, strerror(errno));
 	free(tmpfile);
+}
+
+static void write_posfiles(void)
+{
+	struct posfile *posfile;
+
+	list_for_each_entry(posfile, &posfiles, list)
+		write_posfile(posfile);
 }
 
 static void allocate_matches(struct event_pattern *pattern,
@@ -538,6 +570,22 @@ static void print_missing_matches(const char *why)
 	}
 }
 
+static struct posfile *new_posfile(const char *name)
+{
+	struct posfile *posfile;
+
+	list_for_each_entry(posfile, &posfiles, list) {
+		if (!strcmp(posfile->name, name))
+			return posfile;
+	}
+
+	posfile = xalloc(sizeof(*posfile));
+	posfile->name = name;
+	INIT_LIST_HEAD(&posfile->other_logfiles);
+	list_add(&posfile->list, &posfiles);
+	return posfile;
+}
+
 void new_logfile(const char *name, unsigned int index) {
 	struct logfile *logfile;
 
@@ -551,6 +599,7 @@ void new_logfile(const char *name, unsigned int index) {
 	logfile->offset = 0;
 	init_buffer(&logfile->buffer, 1 << 12);
 	logfile->index = index;
+	logfile->posfile = NULL;
 	logfile->done = false;
 	list_add_tail(&logfile->list, &logfiles);
 }
@@ -588,7 +637,10 @@ int main(int argc, char *argv[])
 			opt_t = optarg;
 			break;
 		case 'p':
-			opt_p = optarg;
+			if (list_empty(&logfiles))
+				opt_p = optarg;
+			else
+				last_logfile()->posfile = new_posfile(optarg);
 			break;
 		case 's':
 			opt_silent = true;
@@ -625,14 +677,20 @@ int main(int argc, char *argv[])
 	list_for_each_entry(pattern, &bad_patterns, list)
 		allocate_matches(pattern, number_of_files);
 
-	if (opt_p)
-		read_positions(opt_p);
+	if (opt_p) {
+		struct logfile *logfile;
+
+		list_for_each_entry(logfile, &logfiles, list)
+			if (!logfile->posfile)
+				logfile->posfile = new_posfile(opt_p);
+	}
+
+	read_posfiles();
 	set_signals();
 	if (opt_t)
 		set_timeout(opt_t);
 	scan();
-	if (opt_p)
-		write_positions(opt_p);
+	write_posfiles();
 	if (got_alarm_sig) {
 		if (!opt_silent)
 			print_missing_matches("Timeout waiting for patterns to match -- not matched:\n");
