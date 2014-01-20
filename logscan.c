@@ -123,22 +123,22 @@ struct posfile {
 };
 
 struct expr {
+	const char *label;
+	struct posfile *posfile;
+	unsigned int line;
+	off_t offset;
 	struct list_head filter;  /* struct pattern */
 	struct list_head good;  /* struct pattern */
 	struct list_head bad;  /* struct pattern */
+	bool done;
 };
 
 struct logfile {
 	struct list_head list;  /* logfiles */
-	const char *label;
 	const char *name;
 	int fd;
-	unsigned int line;
-	off_t offset;
 	struct buffer buffer;
 	unsigned int wd;  /* inotify watch descriptor */
-	struct posfile *posfile;
-	bool done;
 	struct expr *expr;
 };
 
@@ -221,10 +221,10 @@ static void read_posfile(struct posfile *posfile)
 			fatal("%s: %s: Parse error", progname, posfile->name);
 
 		list_for_each_entry(logfile, &logfiles, list) {
-			if (logfile->posfile == posfile &&
+			if (logfile->expr->posfile == posfile &&
 			    !strcmp(name, logfile->name)) {
-				logfile->line = line;
-				logfile->offset = offset;
+				logfile->expr->line = line;
+				logfile->expr->offset = offset;
 				if (lseek(logfile->fd, offset, SEEK_SET) == (off_t) -1)
 					fatal("%s: %s: failed to seek: %s",
 					      progname, name, strerror(errno));
@@ -262,9 +262,9 @@ static void write_posfile(struct posfile *posfile)
 		fatal("%s: %s: %s",
 		      progname, tmpfile, strerror(errno));
 	list_for_each_entry(logfile, &logfiles, list)
-		if (logfile->posfile == posfile)
+		if (logfile->expr->posfile == posfile)
 			fprintf(f, "%u %lu %s\n",
-				logfile->line, logfile->offset, logfile->name);
+				logfile->expr->line, logfile->expr->offset, logfile->name);
 	list_for_each_entry(other_logfile, &posfile->other_logfiles, list)
 		fprintf(f, "%u %lu %s\n",
 			other_logfile->line, other_logfile->offset, other_logfile->name);
@@ -320,12 +320,12 @@ static void scan_line(struct logfile *logfile, char *line)
 		if (!regexec(&pattern->reg, line, 0, NULL, 0)) {
 			pattern->matches = true;
 			if (all_matched(&logfile->expr->good)) {
-				logfile->done = true;
+				logfile->expr->done = true;
 				active_logfiles--;
 			}
 			if (opt_verbose)
 				printf("Pattern '%s' matches at %s:%u\n",
-				       pattern->regex, logfile->label, logfile->line + 1);
+				       pattern->regex, logfile->expr->label, logfile->expr->line + 1);
 		}
 	}
 	list_for_each_entry(pattern, &logfile->expr->bad, list) {
@@ -333,9 +333,9 @@ static void scan_line(struct logfile *logfile, char *line)
 			if (!opt_silent)
 				fprintf(stderr, "Unexpected pattern '%s' "
 						"matches at %s:%u\n",
-				       pattern->regex, logfile->label, logfile->line + 1);
+				       pattern->regex, logfile->expr->label, logfile->expr->line + 1);
 			pattern->matches = true;
-			logfile->done = true;
+			logfile->expr->done = true;
 			active_logfiles--;
 		}
 	}
@@ -343,8 +343,8 @@ static void scan_line(struct logfile *logfile, char *line)
     out:
 	*nl = '\n';
 
-	logfile->line++;
-	logfile->offset += nl - line + 1;
+	logfile->expr->line++;
+	logfile->expr->offset += nl - line + 1;
 }
 
 char *get_next_line(struct buffer *buffer)
@@ -369,7 +369,7 @@ static void scan_file(struct logfile *logfile)
 {
 	char *line;
 
-	while (!logfile->done) {
+	while (!logfile->expr->done) {
 		ssize_t size;
 
 		line = get_next_line(&logfile->buffer);
@@ -541,7 +541,7 @@ static void print_missing_matches(const char *why)
 		struct pattern *pattern;
 		bool printed = false;
 
-		if (logfile->done)
+		if (logfile->expr->done)
 			continue;
 		list_for_each_entry(pattern, &logfile->expr->good, list) {
 			if (pattern->matches)
@@ -551,7 +551,7 @@ static void print_missing_matches(const char *why)
 				why = NULL;
 			}
 			if (!printed) {
-				fprintf(stderr, "%s: '%s'", logfile->label, pattern->regex);
+				fprintf(stderr, "%s: '%s'", logfile->expr->label, pattern->regex);
 				printed = true;
 			} else
 				fprintf(stderr, ", '%s'", pattern->regex);
@@ -590,11 +590,15 @@ static void append_patterns(struct list_head *to, struct list_head *from)
 	}
 }
 
-static struct expr *new_expr(struct expr *expr)
+static struct expr *new_expr(const char *name, struct expr *expr)
 {
 	struct expr *new;
 
 	new = xalloc(sizeof(*new));
+	new->label = name;
+	new->posfile = NULL;
+	new->line = 0;
+	new->offset = 0;
 	INIT_LIST_HEAD(&new->filter);
 	INIT_LIST_HEAD(&new->good);
 	INIT_LIST_HEAD(&new->bad);
@@ -603,6 +607,7 @@ static struct expr *new_expr(struct expr *expr)
 		append_patterns(&new->good, &expr->good);
 		append_patterns(&new->bad, &expr->bad);
 	}
+	new->done = false;
 	return new;
 }
 
@@ -611,17 +616,13 @@ static struct logfile *new_logfile(const char *name, struct expr *expr)
 	struct logfile *logfile;
 
 	logfile = xalloc(sizeof(*logfile));
-	logfile->label = name;
 	logfile->name = name;
 	logfile->fd = open(logfile->name, O_RDONLY | O_NONBLOCK);
 	if (logfile->fd < 0)
 		fatal("%s: %s: %s",
 		      progname, logfile->name, strerror(errno));
-	logfile->offset = 0;
 	init_buffer(&logfile->buffer, 1 << 12);
-	logfile->posfile = NULL;
-	logfile->done = false;
-	logfile->expr = new_expr(expr);
+	logfile->expr = new_expr(name, expr);
 	list_add_tail(&logfile->list, &logfiles);
 	return logfile;
 }
@@ -629,7 +630,7 @@ static struct logfile *new_logfile(const char *name, struct expr *expr)
 int main(int argc, char *argv[])
 {
 	const char *opt_p = NULL, *opt_t = NULL;
-	struct expr *global_expr = new_expr(NULL), *expr = global_expr;
+	struct expr *global_expr = new_expr(NULL, NULL), *expr = global_expr;
 	struct logfile *last_logfile = NULL;
 	struct logfile *logfile;
 
@@ -659,7 +660,7 @@ int main(int argc, char *argv[])
 			if (!last_logfile)
 				opt_p = optarg;
 			else
-				last_logfile->posfile = new_posfile(optarg);
+				last_logfile->expr->posfile = new_posfile(optarg);
 			break;
 		case 's':
 			opt_silent = true;
@@ -674,7 +675,7 @@ int main(int argc, char *argv[])
 		case 2:  /* --label */
 			if (!last_logfile)
 				usage("option --label must follow a log file name");
-			last_logfile->label = optarg;
+			last_logfile->expr->label = optarg;
 			break;
 		case 3:  /* --version */
 			printf("%s %s\n", PACKAGE_NAME, PACKAGE_VERSION);
@@ -698,8 +699,8 @@ int main(int argc, char *argv[])
 
 	if (opt_p) {
 		list_for_each_entry(logfile, &logfiles, list)
-			if (!logfile->posfile)
-				logfile->posfile = new_posfile(opt_p);
+			if (!logfile->expr->posfile)
+				logfile->expr->posfile = new_posfile(opt_p);
 	}
 
 	read_posfiles();
