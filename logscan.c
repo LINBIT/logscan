@@ -135,6 +135,13 @@ struct logfile {
 	bool done;
 };
 
+struct other_logfile {
+	struct list_head list;
+	const char *name;
+	unsigned int line;
+	off_t offset;
+};
+
 struct event_pattern {
 	struct list_head list;
 	const char *regex;
@@ -166,6 +173,19 @@ static void new_pattern(const char *regex, struct list_head *list)
 	list_add_tail(&pattern->list, list);
 }
 
+static struct other_logfile *new_other_logfile(const char *name,
+					       unsigned int line,
+					       off_t offset)
+{
+	struct other_logfile *other_logfile;
+
+	other_logfile = xalloc(sizeof(*other_logfile));
+	other_logfile->name = name;
+	other_logfile->line = line;
+	other_logfile->offset = offset;
+	return other_logfile;
+}
+
 static void read_posfile(struct posfile *posfile)
 {
 	FILE *f;
@@ -178,6 +198,7 @@ static void read_posfile(struct posfile *posfile)
 	}
 	for(;;) {
 		struct logfile *logfile;
+		struct other_logfile *other_logfile;
 		unsigned int line;
 		unsigned long offset;
 		char *name = NULL, *c;
@@ -206,12 +227,9 @@ static void read_posfile(struct posfile *posfile)
 				goto next;
 			}
 		}
-		logfile = xalloc(sizeof(*logfile));
-		logfile->name = name;
+		other_logfile = new_other_logfile(name, line, offset);
 		name = NULL;
-		logfile->line = line;
-		logfile->offset = offset;
-		list_add_tail(&logfile->list, &posfile->other_logfiles);
+		list_add_tail(&other_logfile->list, &posfile->other_logfiles);
 	    next:
 		free(name);
 	}
@@ -229,6 +247,7 @@ static void read_posfiles(void)
 static void write_posfile(struct posfile *posfile)
 {
 	struct logfile *logfile;
+	struct other_logfile *other_logfile;
 	char *tmpfile;
 	FILE *f;
 
@@ -242,9 +261,9 @@ static void write_posfile(struct posfile *posfile)
 		if (logfile->posfile == posfile)
 			fprintf(f, "%u %lu %s\n",
 				logfile->line, logfile->offset, logfile->name);
-	list_for_each_entry(logfile, &posfile->other_logfiles, list)
+	list_for_each_entry(other_logfile, &posfile->other_logfiles, list)
 		fprintf(f, "%u %lu %s\n",
-			logfile->line, logfile->offset, logfile->name);
+			other_logfile->line, other_logfile->offset, other_logfile->name);
 	if (fclose(f))
 		fatal("%s: %s: %s", progname, tmpfile, strerror(errno));
 	if (rename(tmpfile, posfile->name))
@@ -586,7 +605,7 @@ static struct posfile *new_posfile(const char *name)
 	return posfile;
 }
 
-void new_logfile(const char *name, unsigned int index) {
+static void new_logfile(const char *name, unsigned int index) {
 	struct logfile *logfile;
 
 	logfile = xalloc(sizeof(*logfile));
