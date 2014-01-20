@@ -136,10 +136,10 @@ struct logfile {
 	unsigned int line;
 	off_t offset;
 	struct buffer buffer;
-	unsigned int index;
 	unsigned int wd;  /* inotify watch descriptor */
 	struct posfile *posfile;
 	bool done;
+	struct expr *expr;
 };
 
 struct other_logfile {
@@ -153,13 +153,7 @@ struct pattern {
 	struct list_head list;
 	const char *regex;
 	regex_t reg;
-	unsigned int *matches;
-};
-
-struct expr expr = {
-	.filter = LIST_HEAD_INIT(expr.filter),
-	.good = LIST_HEAD_INIT(expr.good),
-	.bad = LIST_HEAD_INIT(expr.bad),
+	bool matches;
 };
 
 LIST_HEAD(logfiles);
@@ -179,7 +173,7 @@ static void new_pattern(const char *regex, struct list_head *list)
 		regerror(ret, &pattern->reg, error, size);
 		usage("Pattern '%s': %s", regex, error);
 	}
-	pattern->matches = NULL;
+	pattern->matches = false;
 	list_add_tail(&pattern->list, list);
 }
 
@@ -290,50 +284,24 @@ static void write_posfiles(void)
 		write_posfile(posfile);
 }
 
-static void allocate_matches(struct pattern *pattern,
-			     unsigned int number_of_files)
-{
-	size_t size = number_of_files * sizeof(*pattern->matches);
-
-	pattern->matches = xalloc(size);
-	memset(pattern->matches, 0, size);
-}
-
-static bool all_matched_for_file(struct list_head *patterns, int index)
+static bool all_matched(struct list_head *patterns)
 {
 	struct pattern *pattern;
 
 	list_for_each_entry(pattern, patterns, list) {
-		if (!pattern->matches[index])
+		if (!pattern->matches)
 			return false;
 	}
 	return true;
 }
 
-static bool all_matched(struct list_head *patterns, int number_of_files)
+static bool any_matched(struct list_head *patterns)
 {
 	struct pattern *pattern;
 
 	list_for_each_entry(pattern, patterns, list) {
-		int index;
-
-		for (index = 0; index < number_of_files; index++)
-			if (!pattern->matches[index])
-				return false;
-	}
-	return true;
-}
-
-static bool any_matched(struct list_head *patterns, int number_of_files)
-{
-	struct pattern *pattern;
-
-	list_for_each_entry(pattern, patterns, list) {
-		int index;
-
-		for (index = 0; index < number_of_files; index++)
-			if (pattern->matches[index])
-				return true;
+		if (pattern->matches)
+			return true;
 	}
 	return false;
 }
@@ -344,14 +312,14 @@ static void scan_line(struct logfile *logfile, char *line)
 	struct pattern *pattern;
 
 	*nl = 0;
-	list_for_each_entry(pattern, &expr.filter, list) {
+	list_for_each_entry(pattern, &logfile->expr->filter, list) {
 		if (regexec(&pattern->reg, line, 0, NULL, 0))
 			goto out;
 	}
-	list_for_each_entry(pattern, &expr.good, list) {
+	list_for_each_entry(pattern, &logfile->expr->good, list) {
 		if (!regexec(&pattern->reg, line, 0, NULL, 0)) {
-			pattern->matches[logfile->index]++;
-			if (all_matched_for_file(&expr.good, logfile->index)) {
+			pattern->matches = true;
+			if (all_matched(&logfile->expr->good)) {
 				logfile->done = true;
 				active_logfiles--;
 			}
@@ -360,13 +328,13 @@ static void scan_line(struct logfile *logfile, char *line)
 				       pattern->regex, logfile->label, logfile->line + 1);
 		}
 	}
-	list_for_each_entry(pattern, &expr.bad, list) {
+	list_for_each_entry(pattern, &logfile->expr->bad, list) {
 		if (!regexec(&pattern->reg, line, 0, NULL, 0)) {
 			if (!opt_silent)
 				fprintf(stderr, "Unexpected pattern '%s' "
 						"matches at %s:%u\n",
 				       pattern->regex, logfile->label, logfile->line + 1);
-			pattern->matches[logfile->index]++;
+			pattern->matches = true;
 			logfile->done = true;
 			active_logfiles--;
 		}
@@ -575,8 +543,8 @@ static void print_missing_matches(const char *why)
 
 		if (logfile->done)
 			continue;
-		list_for_each_entry(pattern, &expr.good, list) {
-			if (pattern->matches[logfile->index])
+		list_for_each_entry(pattern, &logfile->expr->good, list) {
+			if (pattern->matches)
 				continue;
 			if (why) {
 				fputs(why, stderr);
@@ -605,11 +573,41 @@ static struct posfile *new_posfile(const char *name)
 	posfile = xalloc(sizeof(*posfile));
 	posfile->name = name;
 	INIT_LIST_HEAD(&posfile->other_logfiles);
-	list_add(&posfile->list, &posfiles);
+	list_add_tail(&posfile->list, &posfiles);
 	return posfile;
 }
 
-static void new_logfile(const char *name, unsigned int index) {
+static void append_patterns(struct list_head *to, struct list_head *from)
+{
+	struct pattern *pattern;
+
+	list_for_each_entry(pattern, from, list) {
+		struct pattern *copy;
+
+		copy = xalloc(sizeof(*copy));
+		*copy = *pattern;
+		list_add_tail(&copy->list, to);
+	}
+}
+
+static struct expr *new_expr(struct expr *expr)
+{
+	struct expr *new;
+
+	new = xalloc(sizeof(*new));
+	INIT_LIST_HEAD(&new->filter);
+	INIT_LIST_HEAD(&new->good);
+	INIT_LIST_HEAD(&new->bad);
+	if (expr) {
+		append_patterns(&new->filter, &expr->filter);
+		append_patterns(&new->good, &expr->good);
+		append_patterns(&new->bad, &expr->bad);
+	}
+	return new;
+}
+
+static struct logfile *new_logfile(const char *name, struct expr *expr)
+{
 	struct logfile *logfile;
 
 	logfile = xalloc(sizeof(*logfile));
@@ -621,21 +619,18 @@ static void new_logfile(const char *name, unsigned int index) {
 		      progname, logfile->name, strerror(errno));
 	logfile->offset = 0;
 	init_buffer(&logfile->buffer, 1 << 12);
-	logfile->index = index;
 	logfile->posfile = NULL;
 	logfile->done = false;
+	logfile->expr = new_expr(expr);
 	list_add_tail(&logfile->list, &logfiles);
-}
-
-static struct logfile *last_logfile(void) {
-	return list_last_entry(&logfiles, struct logfile, list);
+	return logfile;
 }
 
 int main(int argc, char *argv[])
 {
 	const char *opt_p = NULL, *opt_t = NULL;
-	unsigned int number_of_files = 0;
-	struct pattern *pattern;
+	struct expr *global_expr = new_expr(NULL), *expr = global_expr;
+	struct logfile *last_logfile = NULL;
 	struct logfile *logfile;
 
 	progname = basename(argv[0]);
@@ -649,22 +644,22 @@ int main(int argc, char *argv[])
 
 		switch(c) {
 		case 'y':
-			new_pattern(optarg, &expr.good);
+			new_pattern(optarg, &expr->good);
 			break;
 		case 'n':
-			new_pattern(optarg, &expr.bad);
+			new_pattern(optarg, &expr->bad);
 			break;
 		case 'f':
-			new_pattern(optarg, &expr.filter);
+			new_pattern(optarg, &expr->filter);
 			break;
 		case 't':
 			opt_t = optarg;
 			break;
 		case 'p':
-			if (list_empty(&logfiles))
+			if (!last_logfile)
 				opt_p = optarg;
 			else
-				last_logfile()->posfile = new_posfile(optarg);
+				last_logfile->posfile = new_posfile(optarg);
 			break;
 		case 's':
 			opt_silent = true;
@@ -673,14 +668,15 @@ int main(int argc, char *argv[])
 			opt_verbose = true;
 			break;
 		case 1:
-			new_logfile(optarg, number_of_files++);
+			last_logfile = new_logfile(optarg, global_expr);
+			expr = last_logfile->expr;
 			break;
-		case 2:
-			if (list_empty(&logfiles))
+		case 2:  /* --label */
+			if (!last_logfile)
 				usage("option --label must follow a log file name");
-			last_logfile()->label = optarg;
+			last_logfile->label = optarg;
 			break;
-		case 3:
+		case 3:  /* --version */
 			printf("%s %s\n", PACKAGE_NAME, PACKAGE_VERSION);
 			exit(0);
 		case 'h':
@@ -691,21 +687,16 @@ int main(int argc, char *argv[])
 	}
 	if (list_empty(&logfiles))
 		usage("command line arguments missing");
-	if (list_empty(&expr.good) && list_empty(&expr.bad))
-		usage("no search patterns specified");
-	list_for_each_entry(logfile, &logfiles, list)
+	list_for_each_entry(logfile, &logfiles, list) {
+		if (list_empty(&logfile->expr->good) &&
+		    list_empty(&logfile->expr->bad))
+			usage("%s: no search patterns specified", logfile->name);
 		active_logfiles++;
+	}
 	if (!opt_t)
 		opt_t = getenv("LOGSCAN_TIMEOUT");
 
-	list_for_each_entry(pattern, &expr.good, list)
-		allocate_matches(pattern, number_of_files);
-	list_for_each_entry(pattern, &expr.bad, list)
-		allocate_matches(pattern, number_of_files);
-
 	if (opt_p) {
-		struct logfile *logfile;
-
 		list_for_each_entry(logfile, &logfiles, list)
 			if (!logfile->posfile)
 				logfile->posfile = new_posfile(opt_p);
@@ -724,8 +715,12 @@ int main(int argc, char *argv[])
 	} else if (got_interrupt_sig)
 		return 1;
 	else {
-		bool good_okay = all_matched(&expr.good, number_of_files);
-		bool bad_okay = !any_matched(&expr.bad, number_of_files);
+		bool good_okay = true, bad_okay = true;
+
+		list_for_each_entry(logfile, &logfiles, list) {
+			good_okay = good_okay && all_matched(&logfile->expr->good);
+			bad_okay = bad_okay && !any_matched(&logfile->expr->bad);
+		}
 
 		if (!good_okay && !opt_silent)
 			print_missing_matches("Patterns not matched:\n");
