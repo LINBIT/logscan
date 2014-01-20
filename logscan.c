@@ -57,6 +57,7 @@ const char *progname;
 bool opt_silent, opt_verbose;
 bool with_timeout = true;
 int inotify_fd = -1;
+unsigned int active_logfiles;
 
 static void usage(const char *fmt, ...)
 {
@@ -341,7 +342,10 @@ static void scan_line(struct logfile *logfile, char *line)
 	list_for_each_entry(pattern, &good_patterns, list) {
 		if (!regexec(&pattern->reg, line, 0, NULL, 0)) {
 			pattern->matches[logfile->index]++;
-			logfile->done = all_matched_for_file(&good_patterns, logfile->index);
+			if (all_matched_for_file(&good_patterns, logfile->index)) {
+				logfile->done = true;
+				active_logfiles--;
+			}
 			if (opt_verbose)
 				printf("Pattern '%s' matches at %s:%u\n",
 				       pattern->regex, logfile->label, logfile->line + 1);
@@ -355,6 +359,7 @@ static void scan_line(struct logfile *logfile, char *line)
 				       pattern->regex, logfile->label, logfile->line + 1);
 			pattern->matches[logfile->index]++;
 			logfile->done = true;
+			active_logfiles--;
 		}
 	}
 
@@ -505,23 +510,13 @@ struct logfile *next_event(void)
 	}
 }
 
-static bool all_done(void)
-{
-	struct logfile *logfile;
-
-	list_for_each_entry(logfile, &logfiles, list)
-		if (!logfile->done)
-			return false;
-	return true;
-}
-
 static void scan(void)
 {
 	struct logfile *logfile;
 
 	list_for_each_entry(logfile, &logfiles, list)
 		scan_file(logfile);
-	if (with_timeout && !all_done()) {
+	if (with_timeout && active_logfiles) {
 		inotify_fd = inotify_init1(IN_NONBLOCK);
 		if (inotify_fd < 0)
 			fatal("%s: waiting for log entries: %s",
@@ -530,7 +525,7 @@ static void scan(void)
 			listen_for_changes(logfile);
 			scan_file(logfile);
 		}
-		while (!all_done()) {
+		while (active_logfiles) {
 			logfile = next_event();
 			if (!logfile)
 				break;
@@ -632,6 +627,7 @@ int main(int argc, char *argv[])
 	const char *opt_p = NULL, *opt_t = NULL;
 	unsigned int number_of_files = 0;
 	struct pattern *pattern;
+	struct logfile *logfile;
 
 	progname = basename(argv[0]);
 
@@ -688,6 +684,8 @@ int main(int argc, char *argv[])
 		usage("command line arguments missing");
 	if (list_empty(&good_patterns) && list_empty(&bad_patterns))
 		usage("no search patterns specified");
+	list_for_each_entry(logfile, &logfiles, list)
+		active_logfiles++;
 	if (!opt_t)
 		opt_t = getenv("LOGSCAN_TIMEOUT");
 
