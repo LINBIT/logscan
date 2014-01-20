@@ -117,13 +117,19 @@ PACKAGE_NAME " - Scan for patterns in log files\n"
 }
 
 struct posfile {
-	struct list_head list;
+	struct list_head list;  /* posfiles */
 	const char *name;
-	struct list_head other_logfiles;
+	struct list_head other_logfiles;  /* struct other_logfile */
+};
+
+struct expr {
+	struct list_head filter;  /* struct pattern */
+	struct list_head good;  /* struct pattern */
+	struct list_head bad;  /* struct pattern */
 };
 
 struct logfile {
-	struct list_head list;
+	struct list_head list;  /* logfiles */
 	const char *label;
 	const char *name;
 	int fd;
@@ -137,7 +143,7 @@ struct logfile {
 };
 
 struct other_logfile {
-	struct list_head list;
+	struct list_head list;  /* posfile.other_logfiles */
 	const char *name;
 	unsigned int line;
 	off_t offset;
@@ -150,11 +156,14 @@ struct pattern {
 	unsigned int *matches;
 };
 
+struct expr expr = {
+	.filter = LIST_HEAD_INIT(expr.filter),
+	.good = LIST_HEAD_INIT(expr.good),
+	.bad = LIST_HEAD_INIT(expr.bad),
+};
+
 LIST_HEAD(logfiles);
 LIST_HEAD(posfiles);
-LIST_HEAD(good_patterns);
-LIST_HEAD(bad_patterns);
-LIST_HEAD(filter_patterns);
 
 static void new_pattern(const char *regex, struct list_head *list)
 {
@@ -335,14 +344,14 @@ static void scan_line(struct logfile *logfile, char *line)
 	struct pattern *pattern;
 
 	*nl = 0;
-	list_for_each_entry(pattern, &filter_patterns, list) {
+	list_for_each_entry(pattern, &expr.filter, list) {
 		if (regexec(&pattern->reg, line, 0, NULL, 0))
 			goto out;
 	}
-	list_for_each_entry(pattern, &good_patterns, list) {
+	list_for_each_entry(pattern, &expr.good, list) {
 		if (!regexec(&pattern->reg, line, 0, NULL, 0)) {
 			pattern->matches[logfile->index]++;
-			if (all_matched_for_file(&good_patterns, logfile->index)) {
+			if (all_matched_for_file(&expr.good, logfile->index)) {
 				logfile->done = true;
 				active_logfiles--;
 			}
@@ -351,7 +360,7 @@ static void scan_line(struct logfile *logfile, char *line)
 				       pattern->regex, logfile->label, logfile->line + 1);
 		}
 	}
-	list_for_each_entry(pattern, &bad_patterns, list) {
+	list_for_each_entry(pattern, &expr.bad, list) {
 		if (!regexec(&pattern->reg, line, 0, NULL, 0)) {
 			if (!opt_silent)
 				fprintf(stderr, "Unexpected pattern '%s' "
@@ -566,7 +575,7 @@ static void print_missing_matches(const char *why)
 
 		if (logfile->done)
 			continue;
-		list_for_each_entry(pattern, &good_patterns, list) {
+		list_for_each_entry(pattern, &expr.good, list) {
 			if (pattern->matches[logfile->index])
 				continue;
 			if (why) {
@@ -640,13 +649,13 @@ int main(int argc, char *argv[])
 
 		switch(c) {
 		case 'y':
-			new_pattern(optarg, &good_patterns);
+			new_pattern(optarg, &expr.good);
 			break;
 		case 'n':
-			new_pattern(optarg, &bad_patterns);
+			new_pattern(optarg, &expr.bad);
 			break;
 		case 'f':
-			new_pattern(optarg, &filter_patterns);
+			new_pattern(optarg, &expr.filter);
 			break;
 		case 't':
 			opt_t = optarg;
@@ -682,16 +691,16 @@ int main(int argc, char *argv[])
 	}
 	if (list_empty(&logfiles))
 		usage("command line arguments missing");
-	if (list_empty(&good_patterns) && list_empty(&bad_patterns))
+	if (list_empty(&expr.good) && list_empty(&expr.bad))
 		usage("no search patterns specified");
 	list_for_each_entry(logfile, &logfiles, list)
 		active_logfiles++;
 	if (!opt_t)
 		opt_t = getenv("LOGSCAN_TIMEOUT");
 
-	list_for_each_entry(pattern, &good_patterns, list)
+	list_for_each_entry(pattern, &expr.good, list)
 		allocate_matches(pattern, number_of_files);
-	list_for_each_entry(pattern, &bad_patterns, list)
+	list_for_each_entry(pattern, &expr.bad, list)
 		allocate_matches(pattern, number_of_files);
 
 	if (opt_p) {
@@ -715,8 +724,8 @@ int main(int argc, char *argv[])
 	} else if (got_interrupt_sig)
 		return 1;
 	else {
-		bool good_okay = all_matched(&good_patterns, number_of_files);
-		bool bad_okay = !any_matched(&bad_patterns, number_of_files);
+		bool good_okay = all_matched(&expr.good, number_of_files);
+		bool bad_okay = !any_matched(&expr.bad, number_of_files);
 
 		if (!good_okay && !opt_silent)
 			print_missing_matches("Patterns not matched:\n");
