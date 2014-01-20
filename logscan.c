@@ -142,7 +142,7 @@ struct other_logfile {
 	off_t offset;
 };
 
-struct event_pattern {
+struct pattern {
 	struct list_head list;
 	const char *regex;
 	regex_t reg;
@@ -157,7 +157,7 @@ LIST_HEAD(filter_patterns);
 
 static void new_pattern(const char *regex, struct list_head *list)
 {
-	struct event_pattern *pattern;
+	struct pattern *pattern;
 	int ret;
 
 	pattern = xalloc(sizeof(*pattern));
@@ -280,7 +280,7 @@ static void write_posfiles(void)
 		write_posfile(posfile);
 }
 
-static void allocate_matches(struct event_pattern *pattern,
+static void allocate_matches(struct pattern *pattern,
 			     unsigned int number_of_files)
 {
 	size_t size = number_of_files * sizeof(*pattern->matches);
@@ -291,7 +291,7 @@ static void allocate_matches(struct event_pattern *pattern,
 
 static bool all_matched_for_file(struct list_head *patterns, int index)
 {
-	struct event_pattern *pattern;
+	struct pattern *pattern;
 
 	list_for_each_entry(pattern, patterns, list) {
 		if (!pattern->matches[index])
@@ -302,7 +302,7 @@ static bool all_matched_for_file(struct list_head *patterns, int index)
 
 static bool all_matched(struct list_head *patterns, int number_of_files)
 {
-	struct event_pattern *pattern;
+	struct pattern *pattern;
 
 	list_for_each_entry(pattern, patterns, list) {
 		int index;
@@ -316,7 +316,7 @@ static bool all_matched(struct list_head *patterns, int number_of_files)
 
 static bool any_matched(struct list_head *patterns, int number_of_files)
 {
-	struct event_pattern *pattern;
+	struct pattern *pattern;
 
 	list_for_each_entry(pattern, patterns, list) {
 		int index;
@@ -331,7 +331,7 @@ static bool any_matched(struct list_head *patterns, int number_of_files)
 static void scan_line(struct logfile *logfile, char *line)
 {
 	char *nl = strchr(line, '\n');
-	struct event_pattern *pattern;
+	struct pattern *pattern;
 
 	*nl = 0;
 	list_for_each_entry(pattern, &filter_patterns, list) {
@@ -566,7 +566,7 @@ static void print_missing_matches(const char *why)
 	struct logfile *logfile;
 
 	list_for_each_entry(logfile, &logfiles, list) {
-		struct event_pattern *pattern;
+		struct pattern *pattern;
 		bool printed = false;
 
 		if (logfile->done)
@@ -631,7 +631,7 @@ int main(int argc, char *argv[])
 {
 	const char *opt_p = NULL, *opt_t = NULL;
 	unsigned int number_of_files = 0;
-	struct event_pattern *pattern;
+	struct pattern *pattern;
 
 	progname = basename(argv[0]);
 
