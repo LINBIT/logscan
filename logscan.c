@@ -325,7 +325,7 @@ static void scan_line(struct logfile *logfile, char *line)
 			}
 			if (opt_verbose)
 				printf("Pattern '%s' matches at %s:%u\n",
-				       pattern->regex, logfile->expr->label, logfile->expr->line + 1);
+				       pattern->regex, logfile->expr->label, logfile->expr->line);
 		}
 	}
 	list_for_each_entry(pattern, &logfile->expr->bad, list) {
@@ -333,7 +333,7 @@ static void scan_line(struct logfile *logfile, char *line)
 			if (!opt_silent)
 				fprintf(stderr, "Unexpected pattern '%s' "
 						"matches at %s:%u\n",
-				       pattern->regex, logfile->expr->label, logfile->expr->line + 1);
+				       pattern->regex, logfile->expr->label, logfile->expr->line);
 			pattern->matches = true;
 			logfile->expr->done = true;
 			active_logfiles--;
@@ -597,7 +597,7 @@ static struct expr *new_expr(const char *name, struct expr *expr)
 	new = xalloc(sizeof(*new));
 	new->label = name;
 	new->posfile = NULL;
-	new->line = 0;
+	new->line = 1;
 	new->offset = 0;
 	INIT_LIST_HEAD(&new->filter);
 	INIT_LIST_HEAD(&new->good);
