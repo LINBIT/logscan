@@ -82,7 +82,6 @@ Unexpected pattern 'xyz' matches at one:1
 status: 1
 EOF
 
-
 check '(logscan --verbose -y abc -y def -n xyz -n zyx -ppos one two 2>&1 || echo status: $?) | sort' <<EOF
 Pattern 'abc' matches at one:4
 Pattern 'abc' matches at two:4
@@ -132,3 +131,114 @@ EOF
 
 check 'logscan -f a -n acb one -t 0 || echo status: $?' <<EOF
 EOF
+
+# --------------------------------------------------------------
+# Option parsing
+
+check 'logscan -p pos -p pos one || echo status: $?' <<EOF
+multiple conflicting -p options
+Try logscan -h.
+status: 2
+EOF
+
+check 'logscan -p pos one -p pos -y one || echo status: $?' <<EOF
+multiple conflicting -p options
+Try logscan -h.
+status: 2
+EOF
+
+check 'logscan one --label one || echo status: $?' <<EOF
+one: no search patterns specified
+Try logscan -h.
+status: 2
+EOF
+
+rm -f pos
+
+# --------------------------------------------------------------
+# Combinations of log and position tracking files and patterns
+
+# Global options
+check 'logscan --verbose -p pos -y abc one two || echo status: $?' <<EOF
+Pattern 'abc' matches at one:4
+Pattern 'abc' matches at two:1
+EOF
+check 'cat pos' <<EOF
+5 13 one
+2 4 two
+EOF
+rm -f pos
+
+# Local options, one position tracking file
+check 'logscan --verbose one -p pos -y xyz two -p pos -y zyx || echo status: $?' <<EOF
+Pattern 'xyz' matches at one:1
+Pattern 'zyx' matches at two:7
+EOF
+check 'cat pos' <<EOF
+2 4 one
+8 22 two
+EOF
+rm -f pos
+
+# Two different position tracking files for the same log file
+check 'logscan --verbose one -p pos1 -y abc one -p pos2 -y abc || echo status: $?' <<EOF
+Pattern 'abc' matches at one:4
+Pattern 'abc' matches at one:4
+EOF
+check 'cat pos1' <<EOF
+5 13 one
+EOF
+check 'cat pos2' <<EOF
+5 13 one
+EOF
+rm -f pos1 pos2
+
+# Patterns for the same log file and position tracking file are merged
+check 'logscan --verbose one -p pos -y abc one -p pos -y def || echo status: $?' <<EOF
+Pattern 'def' matches at one:3
+Pattern 'abc' matches at one:4
+EOF
+rm -f pos
+
+# ----------------------------------------------------------------
+# Example of matching mixed logfile entries
+
+cat > log <<EOF
+proc1: started
+proc1: stopped
+proc2: started
+proc1: started
+proc2: stopped
+proc1: stopped
+proc2: started
+proc2: stopped
+EOF
+
+check 'logscan --verbose -y started \
+	log --label log:proc1 -p pos1 -f proc1 \
+	log --label log:proc2 -p pos2 -f proc2' <<EOF
+Pattern 'started' matches at log:proc1:1
+Pattern 'started' matches at log:proc2:3
+EOF
+
+check 'logscan --verbose -y stopped \
+	log --label log:proc1 -p pos1 -f proc1 \
+	log --label log:proc2 -p pos2 -f proc2' <<EOF
+Pattern 'stopped' matches at log:proc1:2
+Pattern 'stopped' matches at log:proc2:5
+EOF
+
+check 'logscan --verbose -y started \
+	log --label log:proc1 -p pos1 -f proc1 \
+	log --label log:proc2 -p pos2 -f proc2' <<EOF
+Pattern 'started' matches at log:proc1:4
+Pattern 'started' matches at log:proc2:7
+EOF
+
+check 'logscan --verbose -y stopped \
+	log --label log:proc1 -p pos1 -f proc1 \
+	log --label log:proc2 -p pos2 -f proc2' <<EOF
+Pattern 'stopped' matches at log:proc1:6
+Pattern 'stopped' matches at log:proc2:8
+EOF
+rm -f proc1 proc2
