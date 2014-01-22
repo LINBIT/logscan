@@ -546,6 +546,9 @@ static void scan(void)
 {
 	struct logfile *logfile;
 
+	setvbuf(stdout, NULL, _IOLBF, BUFSIZ);
+	setvbuf(stderr, NULL, _IOLBF, BUFSIZ);
+
 	list_for_each_entry(logfile, &logfiles, list)
 		scan_file(logfile);
 	if (with_timeout && active_logfiles) {
