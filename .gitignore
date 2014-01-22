@@ -11,3 +11,4 @@ Makefile.in
 /logscan
 /logscan-*.tar.gz
 /logscan.spec
+/test-suite.log

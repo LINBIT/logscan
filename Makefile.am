@@ -1,5 +1,3 @@
-SUBDIRS = tests
-
 AM_MAKEFLAGS = --no-print-directory
 
 bin_PROGRAMS = logscan
@@ -16,11 +14,30 @@ logscan_LDADD = -lm
 
 AM_CFLAGS = -Wall
 
+TESTS = \
+	tests/all
+
+$(TESTS): logscan
+
+TESTS_ENVIRONMENT = \
+	abs_top_srcdir=$(abs_top_srcdir); \
+	export abs_top_srcdir; \
+	abs_top_builddir=$(abs_top_builddir); \
+	export abs_top_builddir;
+
+LOG_COMPILER = \
+	$(SHELL)
+
+EXTRA_DIST = \
+	$(TESTS) \
+	tests/test-lib.sh \
+	$(top_srcdir)/.version
+
+BUILT_SOURCES = $(top_srcdir)/.version
+
 #distclean-local:
 #	rm -rf build
 
-EXTRA_DIST = $(top_srcdir)/.version
-BUILT_SOURCES = $(top_srcdir)/.version
 $(top_srcdir)/.version:
 	echo $(VERSION) > $@-t && mv $@-t $@
 dist-hook: gen-ChangeLog

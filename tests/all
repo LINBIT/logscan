@@ -2,7 +2,7 @@
 
 export LC_ALL=C
 
-. $srcdir/test-lib.sh
+. $abs_top_srcdir/tests/test-lib.sh
 use_local_logscan
 use_tmpdir
 
