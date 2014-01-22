@@ -34,6 +34,7 @@
 #include "error.h"
 
 static struct option long_options[] = {
+	{"sync",     no_argument, 0, 5 },
 	{"yes",      required_argument, 0, 'y' },
 	{"no",       required_argument, 0, 'n' },
 	{"filter",   required_argument, 0, 'f' },
@@ -72,6 +73,7 @@ PACKAGE_NAME " - Scan for patterns in log files\n"
 "\n"
 "USAGE\n"
 "  " PACKAGE_NAME " [global options] { {logfile} [local options] } ...\n"
+"  " PACKAGE_NAME " --sync filename ...\n"
 "\n"
 "OPTIONS\n"
 "  -y pattern, --yes=pattern\n"
@@ -105,6 +107,11 @@ PACKAGE_NAME " - Scan for patterns in log files\n"
 "    Do not print any messages about unexpected patterns or timeouts\n"
 "    (--silent), or also report when expected patterns are matched\n"
 "    (--verbose).\n"
+"\n"
+"  --sync\n"
+"    For each of the specified position tracking files, set the next match\n"
+"    position of each logfile found to the maximum for that logfile.\n"
+"\n"
 "\n", fmt ? stdout : stderr);
 	}
 	exit(fmt ? 2 : 0);
@@ -279,6 +286,7 @@ static void write_posfiles(void)
 	struct posfile *posfile;
 
 	list_for_each_entry(posfile, &posfiles, list)
+		// fprintf(stderr, "Writing posfile %s\n", posfile->name);
 		write_posfile(posfile);
 }
 
@@ -714,7 +722,7 @@ static struct expr *add_new_expr(struct logfile *logfile,
 
 	expr = new_expr(logfile, global_expr);
 	list_add_tail(&expr->logfile_list, &logfile->expr);
-	if (global_expr->posfile) {
+	if (global_expr && global_expr->posfile) {
 		expr->posfile = global_expr->posfile;
 		list_add_tail(&expr->posfile_list, &expr->posfile->expr);
 	}
@@ -756,11 +764,61 @@ static void check_expr(struct expr *expr) {
 	free(expr);
 }
 
+static void sync_new_posfile(const char *name)
+{
+	struct posfile *posfile;
+
+	posfile = new_posfile(optarg);
+	read_posfile(posfile);
+	while (!list_empty(&posfile->other_logfiles)) {
+		struct other_logfile *other_logfile;
+		struct logfile *logfile;
+		struct expr *expr;
+
+		other_logfile = list_last_entry(&posfile->other_logfiles,
+						struct other_logfile, list);
+		logfile = new_logfile(other_logfile->name);
+		expr = add_new_expr(logfile, NULL);
+		expr->posfile = posfile;
+		expr->line = other_logfile->line;
+		expr->offset = other_logfile->offset;
+		list_add(&expr->posfile_list, &posfile->expr);
+		list_del(&other_logfile->list);
+		free(other_logfile);
+	}
+}
+
+static void sync_posfiles(void)
+{
+	struct logfile *logfile;
+
+	list_for_each_entry(logfile, &logfiles, list) {
+		struct expr *expr;
+
+		list_for_each_entry(expr, &logfile->expr, logfile_list) {
+			if (expr->offset > logfile->offset) {
+				logfile->line = expr->line;
+				logfile->offset = expr->offset;
+			}
+		}
+	}
+
+	list_for_each_entry(logfile, &logfiles, list) {
+		struct expr *expr;
+
+		list_for_each_entry(expr, &logfile->expr, logfile_list) {
+			expr->line = logfile->line;
+			expr->offset = logfile->offset;
+		}
+	}
+}
+
 int main(int argc, char *argv[])
 {
 	const char *opt_t = NULL;
 	struct expr *global_expr = new_expr(NULL, NULL), *expr = global_expr;
 	struct logfile *logfile = NULL;
+	bool opt_sync = false;
 
 	progname = basename(argv[0]);
 
@@ -798,10 +856,14 @@ int main(int argc, char *argv[])
 			opt_verbose = true;
 			break;
 		case 1:
-			if (logfile)
-				check_expr(expr);
-			logfile = new_logfile(optarg);
-			expr = add_new_expr(logfile, global_expr);
+			if (opt_sync) {
+				sync_new_posfile(optarg);
+			} else {
+				if (logfile)
+					check_expr(expr);
+				logfile = new_logfile(optarg);
+				expr = add_new_expr(logfile, global_expr);
+			}
 			break;
 		case 2:  /* --label */
 			if (!logfile)
@@ -817,12 +879,22 @@ int main(int argc, char *argv[])
 			printf("%s %s\n", PACKAGE_NAME, PACKAGE_VERSION);
 			exit(0);
 			break;
+		case 5:  /* --sync */
+			opt_sync = true;
+			break;
 		case 'h':
 			usage(NULL);
 		case '?':
 			exit(2);
 		}
 	}
+
+	if (opt_sync) {
+		sync_posfiles();
+		write_posfiles();
+		return 0;
+	}
+
 	if (list_empty(&logfiles))
 		usage("command line arguments missing");
 	check_expr(expr);

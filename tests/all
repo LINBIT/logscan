@@ -242,3 +242,45 @@ Pattern 'stopped' matches at log:proc1:6
 Pattern 'stopped' matches at log:proc2:8
 EOF
 rm -f proc1 proc2
+
+touch log1 log2 log3 log4
+
+cat > pos1 <<EOF
+1 0 log1
+2 1 log2
+1 0 log3
+EOF
+
+cat > pos2 <<EOF
+1 0 log1
+1 0 log2
+2 1 log3
+EOF
+
+cat > pos3 <<EOF
+1 0 log1
+1 0 log2
+1 0 log3
+2 1 log4
+EOF
+
+ncheck 'logscan --sync pos1 pos2 pos3'
+
+check 'cat pos1' <<EOF
+1 0 log1
+2 1 log2
+2 1 log3
+EOF
+
+check 'cat pos2' <<EOF
+1 0 log1
+2 1 log2
+2 1 log3
+EOF
+
+check 'cat pos3' <<EOF
+1 0 log1
+2 1 log2
+2 1 log3
+2 1 log4
+EOF
