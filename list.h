@@ -149,6 +149,17 @@ static inline int list_empty(const struct list_head *head)
 	container_of(ptr, type, member)
 
 /**
+ * list_first_entry - get the first element from a list
+ * @ptr:        the list head to take the element from.
+ * @type:       the type of the struct this is embedded in.
+ * @member:     the name of the list_struct within the struct.
+ *
+ * Note, that list is expected to be not empty.
+ */
+#define list_first_entry(ptr, type, member) \
+	list_entry((ptr)->next, type, member)
+
+/**
  * list_last_entry - get the last element from a list
  * @ptr:        the list head to take the element from.
  * @type:       the type of the struct this is embedded in.

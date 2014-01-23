@@ -122,6 +122,7 @@ struct posfile {
 	const char *name;
 	struct list_head expr;
 	struct list_head other_logfiles;  /* struct other_logfile */
+	bool changed;
 };
 
 struct logfile {
@@ -201,7 +202,12 @@ static struct other_logfile *new_other_logfile(const char *name,
 
 static void read_posfile(struct posfile *posfile)
 {
+	unsigned int new_logfiles = 0;
+	struct expr *expr;
 	FILE *f;
+
+	list_for_each_entry(expr, &posfile->expr, posfile_list)
+		new_logfiles++;
 
 	f = fopen(posfile->name, "r");
 	if (!f) {
@@ -210,7 +216,6 @@ static void read_posfile(struct posfile *posfile)
 		fatal("%s: %s: %s", progname, posfile->name, strerror(errno));
 	}
 	for(;;) {
-		struct expr *expr;
 		struct other_logfile *other_logfile;
 		unsigned int line;
 		unsigned long offset;
@@ -233,6 +238,7 @@ static void read_posfile(struct posfile *posfile)
 			if (!strcmp(name, expr->logfile->name)) {
 				expr->line = line;
 				expr->offset = offset;
+				new_logfiles--;
 				goto next;
 			}
 		}
@@ -243,6 +249,8 @@ static void read_posfile(struct posfile *posfile)
 		free(name);
 	}
 	fclose(f);
+	if (new_logfiles)
+		posfile->changed = true;
 }
 
 static void read_posfiles(void)
@@ -286,8 +294,8 @@ static void write_posfiles(void)
 	struct posfile *posfile;
 
 	list_for_each_entry(posfile, &posfiles, list)
-		// fprintf(stderr, "Writing posfile %s\n", posfile->name);
-		write_posfile(posfile);
+		if (posfile->changed)
+			write_posfile(posfile);
 }
 
 static void seek_logfiles(void)
@@ -366,6 +374,8 @@ static void scan_line(struct logfile *logfile, char *line, unsigned int length)
 				(unsigned int)(logfile->offset - expr->offset));
 			expr->line = logfile->line;
 			expr->offset = logfile->offset;
+			if (expr->posfile)
+				expr->posfile->changed = true;
 		}
 
 		list_for_each_entry(pattern, &expr->filter, list) {
@@ -402,6 +412,8 @@ static void scan_line(struct logfile *logfile, char *line, unsigned int length)
 	    next:
 		expr->line++;
 		expr->offset += length;
+		if (expr->posfile)
+			expr->posfile->changed = true;
 	}
 	line[length - 1] = '\n';
 	logfile->line++;
@@ -644,6 +656,7 @@ static struct posfile *new_posfile(const char *name)
 	posfile->name = name;
 	INIT_LIST_HEAD(&posfile->expr);
 	INIT_LIST_HEAD(&posfile->other_logfiles);
+	posfile->changed = false;
 	list_add_tail(&posfile->list, &posfiles);
 	return posfile;
 }
@@ -775,14 +788,14 @@ static void sync_new_posfile(const char *name)
 		struct logfile *logfile;
 		struct expr *expr;
 
-		other_logfile = list_last_entry(&posfile->other_logfiles,
-						struct other_logfile, list);
+		other_logfile = list_first_entry(&posfile->other_logfiles,
+						 struct other_logfile, list);
 		logfile = new_logfile(other_logfile->name);
 		expr = add_new_expr(logfile, NULL);
 		expr->posfile = posfile;
+		list_add_tail(&expr->posfile_list, &posfile->expr);
 		expr->line = other_logfile->line;
 		expr->offset = other_logfile->offset;
-		list_add(&expr->posfile_list, &posfile->expr);
 		list_del(&other_logfile->list);
 		free(other_logfile);
 	}
@@ -807,8 +820,11 @@ static void sync_posfiles(void)
 		struct expr *expr;
 
 		list_for_each_entry(expr, &logfile->expr, logfile_list) {
-			expr->line = logfile->line;
-			expr->offset = logfile->offset;
+			if (expr->offset != logfile->offset) {
+				expr->line = logfile->line;
+				expr->offset = logfile->offset;
+				expr->posfile->changed = true;
+			}
 		}
 	}
 }
