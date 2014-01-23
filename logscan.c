@@ -34,6 +34,7 @@
 #include "error.h"
 
 static struct option long_options[] = {
+	{"chdir",    required_argument, 0, 'd' },
 	{"sync",     no_argument, 0, 5 },
 	{"yes",      required_argument, 0, 'y' },
 	{"no",       required_argument, 0, 'n' },
@@ -107,6 +108,10 @@ PACKAGE_NAME " - Scan for patterns in log files\n"
 "    Do not print any messages about unexpected patterns or timeouts\n"
 "    (--silent), or also report when expected patterns are matched\n"
 "    (--verbose).\n"
+"\n"
+"  --chdir directory\n"
+"    Change into the specified directory and interpret all filenames relative\n"
+"    to there.\n"
 "\n"
 "  --sync\n"
 "    For each of the specified position tracking files, set the next match\n"
@@ -841,7 +846,7 @@ int main(int argc, char *argv[])
 	for(;;) {
 		int c;
 
-		c = getopt_long(argc, argv, "-y:n:f:p:t:svh", long_options, NULL);
+		c = getopt_long(argc, argv, "-y:n:f:p:t:d:svh", long_options, NULL);
 		if (c == -1)
 			break;
 
@@ -897,6 +902,12 @@ int main(int argc, char *argv[])
 			break;
 		case 5:  /* --sync */
 			opt_sync = true;
+			break;
+		case 'd':
+			if (chdir(optarg)) {
+				perror(optarg);
+				exit(1);
+			}
 			break;
 		case 'h':
 			usage(NULL);
