@@ -719,10 +719,6 @@ static struct logfile *new_logfile(const char *name)
 
 	logfile = xalloc(sizeof(*logfile));
 	logfile->name = name;
-	logfile->fd = open(logfile->name, O_RDONLY | O_NONBLOCK);
-	if (logfile->fd < 0)
-		fatal("%s: %s: %s",
-		      progname, logfile->name, strerror(errno));
 	init_buffer(&logfile->buffer, 1 << 12);
 	INIT_LIST_HEAD(&logfile->expr);
 	logfile->active_exprs = 0;
@@ -731,6 +727,14 @@ static struct logfile *new_logfile(const char *name)
 	list_add_tail(&logfile->list, &logfiles);
 	active_logfiles++;
 	return logfile;
+}
+
+static void open_logfile(struct logfile *logfile)
+{
+	logfile->fd = open(logfile->name, O_RDONLY | O_NONBLOCK);
+	if (logfile->fd < 0)
+		fatal("%s: %s: %s",
+		      progname, logfile->name, strerror(errno));
 }
 
 static struct expr *add_new_expr(struct logfile *logfile,
@@ -883,6 +887,7 @@ int main(int argc, char *argv[])
 				if (logfile)
 					check_expr(expr);
 				logfile = new_logfile(optarg);
+				open_logfile(logfile);
 				expr = add_new_expr(logfile, global_expr);
 			}
 			break;
