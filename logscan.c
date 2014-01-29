@@ -149,6 +149,7 @@ struct expr {
 	struct logfile *logfile;
 	const char *label;
 	struct posfile *posfile;
+	unsigned int first_line;
 	unsigned int line;
 	off_t offset;
 	struct list_head filter;  /* struct pattern */
@@ -241,6 +242,7 @@ static void read_posfile(struct posfile *posfile)
 
 		list_for_each_entry(expr, &posfile->expr, posfile_list) {
 			if (!strcmp(name, expr->logfile->name)) {
+				expr->first_line = line;
 				expr->line = line;
 				expr->offset = offset;
 				new_logfiles--;
@@ -616,7 +618,7 @@ static void set_timeout(const char *arg)
 	}
 }
 
-static void print_missing_matches(const char *why)
+static void print_missing_matches(void)
 {
 	struct logfile *logfile;
 
@@ -625,25 +627,27 @@ static void print_missing_matches(const char *why)
 
 		list_for_each_entry(expr, &logfile->expr, logfile_list) {
 			struct pattern *pattern;
-			bool printed = false;
 
 			if (expr->done)
 				continue;
 			list_for_each_entry(pattern, &expr->good, list) {
 				if (pattern->matches)
 					continue;
-				if (why) {
-					fputs(why, stderr);
-					why = NULL;
-				}
-				if (!printed) {
-					fprintf(stderr, "%s: '%s'", expr->label, pattern->regex);
-					printed = true;
-				} else
-					fprintf(stderr, ", '%s'", pattern->regex);
+				fprintf(stderr, "Pattern '%s' does not match in %s",
+					pattern->regex, expr->label);
+				if (expr->line != expr->first_line) {
+					if (expr->first_line == expr->line - 1)
+						fprintf(stderr, " (line %d)\n",
+							expr->first_line);
+					else
+						fprintf(stderr, " (lines %d-%d)\n",
+							expr->first_line, expr->line - 1);
+				} else if (expr->line == 1)
+					fprintf(stderr, " (file is empty)\n");
+				else
+					fprintf(stderr, " (last line is %d)\n",
+						expr->line - 1);
 			}
-			if (printed)
-				fprintf(stderr, "\n");
 		}
 	}
 }
@@ -696,6 +700,7 @@ static struct expr *new_expr(struct logfile *logfile, struct expr *global_expr)
 	expr->logfile = logfile;
 	expr->label = logfile ? logfile->name : NULL;
 	expr->posfile = NULL;
+	expr->first_line = 1;
 	expr->line = 1;
 	expr->offset = 0;
 	INIT_LIST_HEAD(&expr->filter);
@@ -942,8 +947,10 @@ int main(int argc, char *argv[])
 	scan();
 	write_posfiles();
 	if (got_alarm_sig) {
-		if (!opt_silent)
-			print_missing_matches("Timeout waiting for patterns to match -- not matched:\n");
+		if (!opt_silent) {
+			fprintf(stderr, "Timeout waiting for patterns to match\n");
+			print_missing_matches();
+		}
 		return 1;
 	} else if (got_interrupt_sig)
 		return 1;
@@ -960,7 +967,7 @@ int main(int argc, char *argv[])
 		}
 
 		if (!good_okay && !opt_silent)
-			print_missing_matches("Patterns not matched:\n");
+			print_missing_matches();
 		return (good_okay && bad_okay) ? 0 : 1;
 	}
 }
