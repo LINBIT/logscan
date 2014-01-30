@@ -38,6 +38,7 @@ static struct option long_options[] = {
 	{"sync",     no_argument, 0, 5 },
 	{"yes",      required_argument, 0, 'y' },
 	{"no",       required_argument, 0, 'n' },
+	{"always-no", required_argument, 0, 'N' },
 	{"filter",   required_argument, 0, 'f' },
 	{"label",    required_argument, 0, 2 },
 	{"timeout",  required_argument, 0, 't' },
@@ -77,6 +78,9 @@ PACKAGE_NAME " - Scan for patterns in log files\n"
 "  " PACKAGE_NAME " --sync filename ...\n"
 "\n"
 "OPTIONS\n"
+"  -f pattern, --filter=pattern\n"
+"    Only look at lines matching this regular expression pattern.\n"
+"\n"
 "  -y pattern, --yes=pattern\n"
 "    Match this regular expression pattern.  This option can be used\n"
 "    multiple times; all of the patterns must match in arbitrary order.\n"
@@ -86,8 +90,8 @@ PACKAGE_NAME " - Scan for patterns in log files\n"
 "    option can be used multiple times; none of the patterns must\n"
 "    match.\n"
 "\n"
-"  -f pattern, --filter=pattern\n"
-"    Only look at lines matching this regular expression pattern.\n"
+"  -N pattern, --always-no=pattern\n"
+"    Like -no, but disregard any --filter options.\n"
 "\n"
 "  --label label\n"
 "    Use the specified label instead of the file name.  Can only be used as a\n"
@@ -155,6 +159,7 @@ struct expr {
 	struct list_head filter;  /* struct pattern */
 	struct list_head good;  /* struct pattern */
 	struct list_head bad;  /* struct pattern */
+	struct list_head always_bad;  /* struct pattern */
 	bool done;
 };
 
@@ -360,6 +365,29 @@ static bool any_matched(struct list_head *patterns)
 	return false;
 }
 
+static bool scan_bad_patterns(const char *line, struct expr *expr,
+			      struct list_head *list)
+{
+	struct pattern *pattern;
+
+	list_for_each_entry(pattern, list, list) {
+		if (!regexec(&pattern->reg, line, 0, NULL, 0)) {
+			if (!opt_silent)
+				fprintf(stderr, "Unexpected pattern '%s' "
+						"matches at %s:%u\n",
+				       pattern->regex, expr->label, expr->line);
+			pattern->matches = true;
+			if (!expr->done) {
+				expr->done = true;
+				expr->logfile->active_exprs--;
+				if (!expr->logfile->active_exprs)
+					active_logfiles--;
+			}
+		}
+	}
+	return expr->done;
+}
+
 static void scan_line(struct logfile *logfile, char *line, unsigned int length)
 {
 	struct expr *expr;
@@ -392,7 +420,7 @@ static void scan_line(struct logfile *logfile, char *line, unsigned int length)
 		list_for_each_entry(pattern, &expr->good, list) {
 			if (!regexec(&pattern->reg, line, 0, NULL, 0)) {
 				pattern->matches = true;
-				if (all_matched(&expr->good)) {
+				if (!expr->done && all_matched(&expr->good)) {
 					expr->done = true;
 					logfile->active_exprs--;
 					if (!logfile->active_exprs)
@@ -403,20 +431,9 @@ static void scan_line(struct logfile *logfile, char *line, unsigned int length)
 					       pattern->regex, expr->label, expr->line);
 			}
 		}
-		list_for_each_entry(pattern, &expr->bad, list) {
-			if (!regexec(&pattern->reg, line, 0, NULL, 0)) {
-				if (!opt_silent)
-					fprintf(stderr, "Unexpected pattern '%s' "
-							"matches at %s:%u\n",
-					       pattern->regex, expr->label, expr->line);
-				pattern->matches = true;
-				expr->done = true;
-				logfile->active_exprs--;
-				if (!logfile->active_exprs)
-					active_logfiles--;
-			}
-		}
+		scan_bad_patterns(line, expr, &expr->bad);
 	    next:
+		scan_bad_patterns(line, expr, &expr->always_bad);
 		expr->line++;
 		expr->offset += length;
 		if (expr->posfile)
@@ -688,6 +705,7 @@ static void append_to_expr(struct expr *to, struct expr *from)
 	append_patterns(&to->filter, &from->filter);
 	append_patterns(&to->good, &from->good);
 	append_patterns(&to->bad, &from->bad);
+	append_patterns(&to->always_bad, &from->always_bad);
 }
 
 static struct expr *new_expr(struct logfile *logfile, struct expr *global_expr)
@@ -706,6 +724,7 @@ static struct expr *new_expr(struct logfile *logfile, struct expr *global_expr)
 	INIT_LIST_HEAD(&expr->filter);
 	INIT_LIST_HEAD(&expr->good);
 	INIT_LIST_HEAD(&expr->bad);
+	INIT_LIST_HEAD(&expr->always_bad);
 	if (global_expr)
 		append_to_expr(expr, global_expr);
 	expr->done = false;
@@ -772,12 +791,13 @@ static void splice_into_expr(struct expr *to, struct expr *from)
 	list_splice_tail(&from->filter, &to->filter);
 	list_splice_tail(&from->good, &to->good);
 	list_splice_tail(&from->bad, &to->bad);
+	list_splice_tail(&from->always_bad, &to->always_bad);
 }
 
 static void check_expr(struct expr *expr) {
 	struct expr *first_expr;
 
-	if (list_empty(&expr->good) && list_empty(&expr->bad))
+	if (list_empty(&expr->good) && list_empty(&expr->bad) && list_empty(&expr->always_bad))
 		usage("%s: no search patterns specified", expr->logfile->name);
 	if (!expr->posfile)
 		return;
@@ -865,6 +885,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'n':
 			new_pattern(optarg, &expr->bad);
+			break;
+		case 'N':
+			new_pattern(optarg, &expr->always_bad);
 			break;
 		case 'f':
 			new_pattern(optarg, &expr->filter);
@@ -961,8 +984,11 @@ int main(int argc, char *argv[])
 			struct expr *expr;
 
 			list_for_each_entry(expr, &logfile->expr, logfile_list) {
-				good_okay = good_okay && all_matched(&expr->good);
-				bad_okay = bad_okay && !any_matched(&expr->bad);
+				good_okay = good_okay &&
+					    all_matched(&expr->good);
+				bad_okay = bad_okay &&
+					   !any_matched(&expr->bad) &&
+					   !any_matched(&expr->always_bad);
 			}
 		}
 
