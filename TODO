@@ -1,0 +1,7 @@
+* Add signal handler that reports the current status (what logscan is still
+  waiting for and how long the remaining timeout is).
+* When scanning for multiple -y patterns at once, we only report the first
+  occurrence; this doesn't always seem right.
+* Right now, logscan duplicates regular expressions for each (logfile, posfile)
+  pair; this can cause the same expression to be matched multiple times.
+  Avoid that tracking which expresions have already been tried.
