@@ -40,7 +40,7 @@ static struct option long_options[] = {
 	{"no",       required_argument, 0, 'n' },
 	{"always-no", required_argument, 0, 'N' },
 	{"filter",   required_argument, 0, 'f' },
-	{"label",    required_argument, 0, 2 },
+	{"label",    required_argument, 0, 'l' },
 	{"timeout",  required_argument, 0, 't' },
 	{"silent",   no_argument, 0, 's' },
 	{"verbose",  no_argument, 0, 'v' },
@@ -93,7 +93,7 @@ PACKAGE_NAME " - Scan for patterns in log files\n"
 "  -N pattern, --always-no=pattern\n"
 "    Like -no, but disregard any --filter options.\n"
 "\n"
-"  --label label\n"
+"  -l label, --label label\n"
 "    Use the specified label instead of the file name.  Can only be used as a\n"
 "    local option.\n"
 "\n"
@@ -990,7 +990,7 @@ int main(int argc, char *argv[])
 				expr = add_new_expr(logfile, global_expr);
 			}
 			break;
-		case 2:  /* --label */
+		case 'l':  /* --label */
 			if (!logfile)
 				usage("option --label must follow a log file name");
 			if (expr->label != expr->logfile->name)
