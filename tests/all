@@ -36,6 +36,19 @@ Unexpected pattern 'xyz' matches at one:1
 status: 1
 EOF
 
+check 'logscan -y abc -y def -N xyz -N zyx one || echo status: $?' <<EOF
+Unexpected pattern 'xyz' matches at one:1
+status: 1
+EOF
+
+check 'logscan -t0 -n zyx one || echo status: $?' <<EOF
+EOF
+
+check 'logscan -t0 -n xyz -n zyx one || echo status: $?' <<EOF
+Unexpected pattern 'xyz' matches at one:1
+status: 1
+EOF
+
 check 'logscan --silent -y abc -y def -n xyz -n zyx one || echo status: $?' <<EOF
 status: 1
 EOF
@@ -44,6 +57,19 @@ check 'logscan -y abc -y def -n xyz -n zyx two' <<EOF
 EOF
 
 check 'logscan --verbose -y abc -y def -n xyz -n zyx two' <<EOF
+Pattern 'abc' matches at two:1
+Pattern 'def' matches at two:2
+EOF
+
+check 'logscan -t0 -N xyz two' <<EOF
+EOF
+
+check 'logscan -t0 -N xyz -N zyx two || echo status: $?' <<EOF
+Unexpected pattern 'zyx' matches at two:7
+status: 1
+EOF
+
+check 'logscan --verbose -y abc -y def -N xyz -N zyx two' <<EOF
 Pattern 'abc' matches at two:1
 Pattern 'def' matches at two:2
 EOF
