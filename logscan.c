@@ -19,6 +19,7 @@
 #include <stdarg.h>
 #include <string.h>
 #include <errno.h>
+#include <alloca.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/inotify.h>
@@ -92,6 +93,10 @@ PACKAGE_NAME " - Scan for patterns in log files\n"
 "\n"
 "  -N pattern, --always-no=pattern\n"
 "    Like -no, but disregard any --filter options.\n"
+"\n"
+"  -w, -W\n"
+"    Require that all following -f, -y, -n, and -N patterns begin and end at\n"
+"    word boundaries (-w) or anywhere (-W).\n"
 "\n"
 "  -l label, --label label\n"
 "    Use the specified label instead of the file name.  Can only be used as a\n"
@@ -186,19 +191,27 @@ struct pattern {
 	struct list_head list;
 	const char *regex;
 	regex_t reg;
+	bool wordwise;
 	bool matches;
 };
 
 LIST_HEAD(logfiles);  /* All the logfiles we care about. */
 LIST_HEAD(posfiles);  /* All the position tracking files we care about. */
 
-static void new_pattern(const char *regex, struct list_head *list)
+static void new_pattern(const char *regex, struct list_head *list, bool wordwise)
 {
+	char *wordwise_regex;
 	struct pattern *pattern;
 	int ret;
 
 	pattern = xalloc(sizeof(*pattern));
 	pattern->regex = regex;
+	if (wordwise) {
+		size_t size = strlen(regex) + 5;
+		wordwise_regex = alloca(size);
+		snprintf(wordwise_regex, size, "\\b%s\\b", regex);
+		regex = wordwise_regex;
+	}
 	ret = regcomp(&pattern->reg, regex, REG_EXTENDED | REG_NOSUB);
 	if (ret) {
 		size_t size = regerror(ret, &pattern->reg, NULL, 0);
@@ -206,6 +219,7 @@ static void new_pattern(const char *regex, struct list_head *list)
 		regerror(ret, &pattern->reg, error, size);
 		usage("Pattern '%s': %s", regex, error);
 	}
+	pattern->wordwise = wordwise;
 	pattern->matches = false;
 	list_add_tail(&pattern->list, list);
 }
@@ -939,28 +953,35 @@ int main(int argc, char *argv[])
 	struct list_head *always_bad = &global_always_bad;
 	struct logfile *logfile = NULL;
 	bool opt_sync = false;
+	bool opt_wordwise = false;
 
 	progname = basename(argv[0]);
 
 	for(;;) {
 		int c;
 
-		c = getopt_long(argc, argv, "-y:n:N:f:p:t:d:svh", long_options, NULL);
+		c = getopt_long(argc, argv, "-y:n:N:f:wWp:t:d:svh", long_options, NULL);
 		if (c == -1)
 			break;
 
 		switch(c) {
 		case 'y':
-			new_pattern(optarg, &expr->good);
+			new_pattern(optarg, &expr->good, opt_wordwise);
 			break;
 		case 'n':
-			new_pattern(optarg, &expr->bad);
+			new_pattern(optarg, &expr->bad, opt_wordwise);
 			break;
 		case 'N':
-			new_pattern(optarg, always_bad);
+			new_pattern(optarg, always_bad, opt_wordwise);
 			break;
 		case 'f':
-			new_pattern(optarg, &expr->filter);
+			new_pattern(optarg, &expr->filter, opt_wordwise);
+			break;
+		case 'w':
+			opt_wordwise = true;
+			break;
+		case 'W':
+			opt_wordwise = false;
 			break;
 		case 't':
 			opt_t = optarg;

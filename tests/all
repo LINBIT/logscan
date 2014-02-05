@@ -61,6 +61,13 @@ Pattern 'abc' matches at two:1
 Pattern 'def' matches at two:2
 EOF
 
+check 'logscan --verbose -t0 -w -y ab -W -y de two || echo status: $?' <<EOF
+Pattern 'de' matches at two:2
+Pattern 'de' matches again at two:5
+Pattern 'ab' does not match in two (lines 1-7)
+status: 1
+EOF
+
 check 'logscan -t0 -N xyz two' <<EOF
 EOF
 
