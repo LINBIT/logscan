@@ -633,17 +633,20 @@ struct logfile *next_event(void)
 	}
 }
 
-static void scan(void)
+static bool scan(void)
 {
 	struct logfile *logfile;
+	bool failed = false;
 
 	setvbuf(stdout, NULL, _IOLBF, BUFSIZ);
 	setvbuf(stderr, NULL, _IOLBF, BUFSIZ);
 
-	list_for_each_entry(logfile, &logfiles, list)
+	list_for_each_entry(logfile, &logfiles, list) {
 		scan_logfile(logfile, -1);
+		failed |= logfile->failed;
+	}
 
-	if (with_timeout && active_logfiles) {
+	if (with_timeout && active_logfiles && !failed) {
 		inotify_fd = inotify_init1(IN_NONBLOCK);
 		if (inotify_fd < 0)
 			fatal("%s: waiting for log entries: %s",
@@ -653,16 +656,19 @@ static void scan(void)
 				continue;
 			listen_for_changes(logfile);
 			scan_logfile(logfile, -1);
+			failed |= logfile->failed;
 		}
-		while (active_logfiles) {
+		while (active_logfiles && !failed) {
 			logfile = next_event();
 			if (!logfile)
 				break;
 			if (!logfile_active(logfile))
 				continue;
 			scan_logfile(logfile, -1);
+			failed |= logfile->failed;
 		}
 	}
+	return failed;
 }
 
 static void set_timeout(const char *arg)
@@ -954,6 +960,7 @@ int main(int argc, char *argv[])
 	struct logfile *logfile = NULL;
 	bool opt_sync = false;
 	bool opt_wordwise = false;
+	bool failed;
 
 	progname = basename(argv[0]);
 
@@ -1060,7 +1067,7 @@ int main(int argc, char *argv[])
 	set_signals();
 	if (opt_t)
 		set_timeout(opt_t);
-	scan();
+	failed = scan();
 	write_posfiles();
 	if (got_alarm_sig) {
 		if (!opt_silent) {
@@ -1083,7 +1090,7 @@ int main(int argc, char *argv[])
 			bad_okay = bad_okay && !any_matched(&logfile->always_bad);
 		}
 
-		if (!good_okay && !opt_silent)
+		if (!good_okay && !opt_silent && !failed)
 			print_missing_matches();
 		return (good_okay && bad_okay) ? 0 : 1;
 	}
