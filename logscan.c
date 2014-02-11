@@ -1002,9 +1002,11 @@ int main(int argc, char *argv[])
 			break;
 		case 's':
 			opt_silent = true;
+			opt_verbose = false;
 			break;
 		case 'v':
 			opt_verbose = true;
+			opt_silent = false;
 			break;
 		case 1:
 			if (opt_sync) {
