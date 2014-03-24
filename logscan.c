@@ -28,7 +28,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <signal.h>
-#include <regex.h>
+#include <pcre.h>
 #include <assert.h>
 
 #include "list.h"
@@ -71,9 +71,10 @@ static void usage(const char *fmt, ...)
 		fputs(
 PACKAGE_NAME " - Scan for patterns in log files\n"
 "\n"
-"Watch one or more logfiles and check for regular expression patterns.\n"
-"This utility reports which patterns match where, and terminates when all\n"
-"positive matches (-y) or a negative match (-n) was found in each logfile.\n"
+"Watch one or more logfiles and check for Perl-compatible regular expression\n"
+"patterns.  This utility reports which patterns match where, and terminates\n"
+"when all positive matches (-y) or a negative match (-n) was found in each\n"
+"logfile.\n"
 "\n"
 "USAGE\n"
 "  " PACKAGE_NAME " [global options] { {logfile} [local options] } ...\n"
@@ -81,16 +82,15 @@ PACKAGE_NAME " - Scan for patterns in log files\n"
 "\n"
 "OPTIONS\n"
 "  -f pattern, --filter=pattern\n"
-"    Only look at lines matching this regular expression pattern.\n"
+"    Only look at lines matching this pattern.\n"
 "\n"
 "  -y pattern, --yes=pattern\n"
-"    Match this regular expression pattern.  This option can be used\n"
-"    multiple times; all of the patterns must match in arbitrary order.\n"
+"    Match this pattern.  This option can be used multiple times; all\n"
+"    of the patterns must match in arbitrary order.\n"
 "\n"
 "  -n pattern, --no=pattern\n"
-"    Do not allow this regular expression pattern to match.  This\n"
-"    option can be used multiple times; none of the patterns must\n"
-"    match.\n"
+"    Do not allow this pattern to match.  This option can be used\n"
+"    multiple times; none of the patterns must match.\n"
 "\n"
 "  -N pattern, --always-no=pattern\n"
 "    Like -no, but disregard any --filter options.\n"
@@ -188,11 +188,11 @@ struct other_logfile {
 	off_t offset;
 };
 
-/* A regular expression pattern. */
+/* A Perl-compatible regular expression pattern. */
 struct pattern {
 	struct list_head list;
 	const char *regex;
-	regex_t reg;
+	pcre *re;
 	bool wordwise;
 	bool matches;
 };
@@ -204,7 +204,8 @@ static void new_pattern(const char *regex, struct list_head *list, bool wordwise
 {
 	char *wordwise_regex;
 	struct pattern *pattern;
-	int ret;
+	const char *error;
+	int erroffset;
 
 	pattern = xalloc(sizeof(*pattern));
 	pattern->regex = regex;
@@ -217,12 +218,9 @@ static void new_pattern(const char *regex, struct list_head *list, bool wordwise
 		assert(len < size);
 		regex = wordwise_regex;
 	}
-	ret = regcomp(&pattern->reg, regex, REG_EXTENDED | REG_NOSUB);
-	if (ret) {
-		size_t size = regerror(ret, &pattern->reg, NULL, 0);
-		char *error = xalloc(size);
-		regerror(ret, &pattern->reg, error, size);
-		usage("Pattern '%s': %s", regex, error);
+	pattern->re = pcre_compile(regex, 0, &error, &erroffset, NULL);
+	if (!pattern->re) {
+		usage("Pattern '%s': %d: %s", regex, erroffset, error);
 	}
 	pattern->wordwise = wordwise;
 	pattern->matches = false;
@@ -396,6 +394,19 @@ static bool any_matched(struct list_head *patterns)
 	return false;
 }
 
+static bool pattern_matches(struct pattern *pattern, const char *line, unsigned int length)
+{
+	int rc;
+
+	rc = pcre_exec(pattern->re, NULL, line, length, 0, 0, NULL, 0);
+	if (rc < 0) {
+		if (rc == PCRE_ERROR_NOMATCH)
+			return false;
+		fatal("%s: %s: Matching error %d\n", progname, pattern->regex, rc);
+	}
+	return true;
+}
+
 static bool scan_bad_patterns(const char *line, const char *label,
 			      unsigned int lineno, struct list_head *list)
 {
@@ -403,7 +414,7 @@ static bool scan_bad_patterns(const char *line, const char *label,
 	bool matches = false;
 
 	list_for_each_entry(pattern, list, list) {
-		if (!regexec(&pattern->reg, line, 0, NULL, 0)) {
+		if (pattern_matches(pattern, line, strlen(line))) {
 			if (!opt_silent)
 				fprintf(stderr, "Unexpected pattern '%s' "
 						"matches at %s:%u\n",
@@ -451,11 +462,11 @@ static void scan_line(struct logfile *logfile, char *line, unsigned int length)
 		}
 
 		list_for_each_entry(pattern, &expr->filter, list) {
-			if (regexec(&pattern->reg, line, 0, NULL, 0))
+			if (!pattern_matches(pattern, line, length))
 				goto next;
 		}
 		list_for_each_entry(pattern, &expr->good, list) {
-			if (!regexec(&pattern->reg, line, 0, NULL, 0)) {
+			if (pattern_matches(pattern, line, length)) {
 				if (opt_verbose)
 					printf("Pattern '%s' matches %sat %s:%u\n",
 					       pattern->regex,

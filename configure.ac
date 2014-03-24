@@ -11,4 +11,5 @@ AM_SILENT_RULES([yes])
 
 AC_PROG_CC
 AC_PROG_CC_STDC
+AC_CHECK_LIB([pcre], [pcre_compile])
 AC_OUTPUT
