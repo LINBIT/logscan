@@ -29,6 +29,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <regex.h>
+#include <assert.h>
 
 #include "list.h"
 #include "buffer.h"
@@ -96,7 +97,8 @@ PACKAGE_NAME " - Scan for patterns in log files\n"
 "\n"
 "  -w, -W\n"
 "    Require that all following -f, -y, -n, and -N patterns begin and end at\n"
-"    word boundaries (-w) or anywhere (-W).\n"
+"    word boundaries (-w) or anywhere (-W), with words that consists of non-\n"
+"    whitespace characters.\n"
 "\n"
 "  -l label, --label label\n"
 "    Use the specified label instead of the file name.  Can only be used as a\n"
@@ -207,9 +209,12 @@ static void new_pattern(const char *regex, struct list_head *list, bool wordwise
 	pattern = xalloc(sizeof(*pattern));
 	pattern->regex = regex;
 	if (wordwise) {
-		size_t size = strlen(regex) + 5;
+		size_t size = strlen(regex) + 13;
+		int len;
+
 		wordwise_regex = alloca(size);
-		snprintf(wordwise_regex, size, "\\b%s\\b", regex);
+		len = snprintf(wordwise_regex, size, "(^|\\s)%s(\\s|$)", regex);
+		assert(len < size);
 		regex = wordwise_regex;
 	}
 	ret = regcomp(&pattern->reg, regex, REG_EXTENDED | REG_NOSUB);
