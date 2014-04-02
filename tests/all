@@ -56,9 +56,14 @@ EOF
 check 'logscan -y abc -y def -n xyz -n zyx two' <<EOF
 EOF
 
-check 'logscan --verbose -y abc -y def -n xyz -n zyx two' <<EOF
-Pattern 'abc' matches at two:1
-Pattern 'def' matches at two:2
+check 'logscan --verbose -y a.c -y d.f -n xyz -n zyx two' <<EOF
+Pattern 'a.c' matches at two:1
+Pattern 'd.f' matches at two:2
+EOF
+
+check 'logscan --print -y a.c -y d.f -n xyz -n zyx two' <<EOF
+two:1 abc
+two:2 def
 EOF
 
 check 'logscan --verbose -t0 -w -y ab -W -y de two || echo status: $?' <<EOF

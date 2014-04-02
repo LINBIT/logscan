@@ -39,6 +39,7 @@ static struct option long_options[] = {
 	{"chdir",    required_argument, 0, 'd' },
 	{"sync",     no_argument, 0, 5 },
 	{"yes",      required_argument, 0, 'y' },
+	{"print",    no_argument, 0, 6 },
 	{"no",       required_argument, 0, 'n' },
 	{"always-no", required_argument, 0, 'N' },
 	{"filter",   required_argument, 0, 'f' },
@@ -53,10 +54,11 @@ static struct option long_options[] = {
 };
 
 const char *progname;
-bool opt_silent, opt_verbose, opt_debug;
+bool opt_print, opt_silent, opt_verbose, opt_debug;
 bool with_timeout = true;
 int inotify_fd = -1;
 unsigned int active_logfiles;
+FILE *info;
 
 static void usage(const char *fmt, ...)
 {
@@ -361,10 +363,10 @@ static void seek_logfiles(void)
 		}
 		if (logfile->offset) {
 			if (opt_debug)
-				printf("%s: seeking to line %u at offset %lu\n",
-				       logfile->name,
-				       logfile->line,
-				       (unsigned long) logfile->offset);
+				fprintf(info, "%s: seeking to line %u at offset %lu\n",
+					logfile->name,
+					logfile->line,
+					(unsigned long) logfile->offset);
 			if (lseek(logfile->fd, logfile->offset, SEEK_SET) == (off_t) -1)
 				fatal("%s: %s: failed to seek: %s",
 				      progname, logfile->name, strerror(errno));
@@ -467,12 +469,14 @@ static void scan_line(struct logfile *logfile, char *line, unsigned int length)
 		}
 		list_for_each_entry(pattern, &expr->good, list) {
 			if (pattern_matches(pattern, line, length)) {
+				if (opt_print)
+					printf("%s:%u %s\n", expr->label, expr->line, line);
 				if (opt_verbose)
-					printf("Pattern '%s' matches %sat %s:%u\n",
-					       pattern->regex,
-					       pattern->matches ? "again " : "",
-					       expr->label,
-					       expr->line);
+					fprintf(info, "Pattern '%s' matches %sat %s:%u\n",
+						pattern->regex,
+						pattern->matches ? "again " : "",
+						expr->label,
+						expr->line);
 				if (!pattern->matches) {
 					pattern->matches = true;
 					expr->active_good--;
@@ -980,6 +984,7 @@ int main(int argc, char *argv[])
 
 	progname = basename(argv[0]);
 
+	info = stdout;
 	for(;;) {
 		int c;
 
@@ -1052,6 +1057,10 @@ int main(int argc, char *argv[])
 			break;
 		case 5:  /* --sync */
 			opt_sync = true;
+			break;
+		case 6:
+			info = stderr;
+			opt_print = true;
 			break;
 		case 'd':
 			if (chdir(optarg)) {
