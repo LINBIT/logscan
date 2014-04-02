@@ -220,7 +220,7 @@ static void new_pattern(const char *regex, struct list_head *list, bool wordwise
 		assert(len < size);
 		regex = wordwise_regex;
 	}
-	pattern->re = pcre_compile(regex, 0, &error, &erroffset, NULL);
+	pattern->re = pcre_compile(regex, PCRE_DOLLAR_ENDONLY, &error, &erroffset, NULL);
 	if (!pattern->re) {
 		usage("Pattern '%s': %d: %s", regex, erroffset, error);
 	}
@@ -409,14 +409,15 @@ static bool pattern_matches(struct pattern *pattern, const char *line, unsigned 
 	return true;
 }
 
-static bool scan_bad_patterns(const char *line, const char *label,
-			      unsigned int lineno, struct list_head *list)
+static bool scan_bad_patterns(const char *line, unsigned int length,
+			      const char *label, unsigned int lineno,
+			      struct list_head *list)
 {
 	struct pattern *pattern;
 	bool matches = false;
 
 	list_for_each_entry(pattern, list, list) {
-		if (pattern_matches(pattern, line, strlen(line))) {
+		if (pattern_matches(pattern, line, length)) {
 			if (!opt_silent)
 				fprintf(stderr, "Unexpected pattern '%s' "
 						"matches at %s:%u\n",
@@ -442,7 +443,6 @@ static void scan_line(struct logfile *logfile, char *line, unsigned int length)
 {
 	struct expr *expr;
 
-	line[length - 1] = 0;
 	list_for_each_entry(expr, &logfile->expr, logfile_list) {
 		struct pattern *pattern;
 
@@ -464,13 +464,13 @@ static void scan_line(struct logfile *logfile, char *line, unsigned int length)
 		}
 
 		list_for_each_entry(pattern, &expr->filter, list) {
-			if (!pattern_matches(pattern, line, length))
+			if (!pattern_matches(pattern, line, length - 1))
 				goto next;
 		}
 		list_for_each_entry(pattern, &expr->good, list) {
-			if (pattern_matches(pattern, line, length)) {
+			if (pattern_matches(pattern, line, length - 1)) {
 				if (opt_print)
-					printf("%s:%u %s\n", expr->label, expr->line, line);
+					printf("%s:%u %.*s\n", expr->label, expr->line, length - 1, line);
 				if (opt_verbose)
 					fprintf(info, "Pattern '%s' matches %sat %s:%u\n",
 						pattern->regex,
@@ -488,7 +488,7 @@ static void scan_line(struct logfile *logfile, char *line, unsigned int length)
 				}
 			}
 		}
-		if (scan_bad_patterns(line, expr->label, expr->line, &expr->bad)) {
+		if (scan_bad_patterns(line, length - 1, expr->label, expr->line, &expr->bad)) {
 			expr->failed = true;
 			if (logfile_active(logfile))
 				active_logfiles--;
@@ -500,12 +500,11 @@ static void scan_line(struct logfile *logfile, char *line, unsigned int length)
 		if (expr->posfile)
 			expr->posfile->changed = true;
 	}
-	if (scan_bad_patterns(line, logfile->name, logfile->line, &logfile->always_bad)) {
+	if (scan_bad_patterns(line, length - 1, logfile->name, logfile->line, &logfile->always_bad)) {
 		if (logfile_active(logfile))
 			active_logfiles--;
 		logfile->failed = true;
 	}
-	line[length - 1] = '\n';
 	logfile->line++;
 	logfile->offset += length;
 }
