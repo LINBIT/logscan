@@ -11,5 +11,6 @@ AM_SILENT_RULES([yes])
 
 AC_PROG_CC
 AC_PROG_CC_STDC
-AC_CHECK_LIB([pcre], [pcre_compile])
+AC_CHECK_HEADERS([pcre.h], [], [AC_MSG_ERROR([pcre.h was not found; is package pcre-devel or libpcre3-dev installed?])])
+AC_CHECK_LIB([pcre], [pcre_compile], [], [AC_MSG_ERROR([pcre_compile was not found in libpcre])])
 AC_OUTPUT
