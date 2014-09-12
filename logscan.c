@@ -992,16 +992,16 @@ int main(int argc, char *argv[])
 			break;
 
 		switch(c) {
-		case 'y':
+		case 'y':  /* --yes */
 			new_pattern(optarg, &expr->good, opt_wordwise);
 			break;
-		case 'n':
+		case 'n':  /* --no */
 			new_pattern(optarg, &expr->bad, opt_wordwise);
 			break;
-		case 'N':
+		case 'N':  /* --always-no */
 			new_pattern(optarg, always_bad, opt_wordwise);
 			break;
-		case 'f':
+		case 'f':  /* --filter */
 			new_pattern(optarg, &expr->filter, opt_wordwise);
 			break;
 		case 'w':
@@ -1010,7 +1010,7 @@ int main(int argc, char *argv[])
 		case 'W':
 			opt_wordwise = false;
 			break;
-		case 't':
+		case 't':  /* --timeout */
 			opt_t = optarg;
 			break;
 		case 'p':
@@ -1020,15 +1020,15 @@ int main(int argc, char *argv[])
 			if (logfile)
 				list_add_tail(&expr->posfile_list, &expr->posfile->expr);
 			break;
-		case 's':
+		case 's':  /* --silent */
 			opt_silent = true;
 			opt_verbose = false;
 			break;
-		case 'v':
+		case 'v':  /* --verbose */
 			opt_verbose = true;
 			opt_silent = false;
 			break;
-		case 1:
+		case 1:  /* argument */
 			if (opt_sync) {
 				sync_new_posfile(optarg, always_bad);
 			} else {
@@ -1057,17 +1057,17 @@ int main(int argc, char *argv[])
 		case 5:  /* --sync */
 			opt_sync = true;
 			break;
-		case 6:
+		case 6:  /* --printf */
 			info = stderr;
-			opt_print = true;
+			opt_print = optarg;
 			break;
-		case 'd':
+		case 'd':  /* --chdir */
 			if (chdir(optarg)) {
 				perror(optarg);
 				exit(1);
 			}
 			break;
-		case 'h':
+		case 'h':  /* --help */
 			usage(NULL);
 		case '?':
 			exit(2);
