@@ -35,11 +35,13 @@
 #include "buffer.h"
 #include "error.h"
 
+#define ARRAY_SIZE(x) (sizeof (x) / sizeof *(x))
+
 static struct option long_options[] = {
 	{"chdir",    required_argument, 0, 'd' },
 	{"sync",     no_argument, 0, 5 },
 	{"yes",      required_argument, 0, 'y' },
-	{"print",    no_argument, 0, 6 },
+	{"printf",   required_argument, 0, 6 },
 	{"no",       required_argument, 0, 'n' },
 	{"always-no", required_argument, 0, 'N' },
 	{"filter",   required_argument, 0, 'f' },
@@ -54,7 +56,8 @@ static struct option long_options[] = {
 };
 
 const char *progname;
-bool opt_print, opt_silent, opt_verbose, opt_debug;
+bool opt_silent, opt_verbose, opt_debug;
+char *opt_print;
 bool with_timeout = true;
 int inotify_fd = -1;
 unsigned int active_logfiles;
@@ -125,6 +128,12 @@ PACKAGE_NAME " - Scan for patterns in log files\n"
 "  --chdir directory\n"
 "    Change into the specified directory and interpret all filenames relative\n"
 "    to there.\n"
+"\n"
+"  --printf=FORMAT\n"
+"    Print matched patterns according to FORMAT.  C-style backslash sequences\n"
+"    and the following character sequences are supported: \%L (matched line),\n"
+"    \%0 (matched expression), \%1 .. \%9 (matched subexpression), \%l (label),\n"
+"    \%f (file name), \%n (line number).\n"
 "\n"
 "  --sync\n"
 "    For each of the specified position tracking files, set the next match\n"
@@ -396,17 +405,108 @@ static bool any_matched(struct list_head *patterns)
 	return false;
 }
 
-static bool pattern_matches(struct pattern *pattern, const char *line, unsigned int length)
+static const int *pattern_matches(struct pattern *pattern, const char *line, unsigned int length)
 {
+	static int matched[30];
 	int rc;
 
-	rc = pcre_exec(pattern->re, NULL, line, length, 0, 0, NULL, 0);
-	if (rc < 0) {
+	/* Make sure the indexes for all substrings not matched are set to -1. */
+	if (matched[0] != -1)
+		memset(matched, -1, sizeof(matched));
+
+	rc = pcre_exec(pattern->re, NULL, line, length, 0, 0, matched, ARRAY_SIZE(matched));
+	if (rc <= 0) {
 		if (rc == PCRE_ERROR_NOMATCH)
-			return false;
+			return NULL;
 		fatal("%s: %s: Matching error %d\n", progname, pattern->regex, rc);
 	}
-	return true;
+	return matched;
+}
+
+static void print_matches(struct expr *expr, const char *line, unsigned int length,
+			  const int *matched, const char *fmt)
+{
+	const char *f = fmt;
+	char c;
+
+	while (f[0]) {
+		while (f[0] != '%' && f[0] != '\\')
+			f++;
+		if (!f[0] || !f[1])
+			continue;
+		if (f != fmt) {
+			fwrite(fmt, 1, f - fmt, stdout);
+			fmt = f;
+		}
+		switch(f[0]) {
+		case '%':
+			if (f[1] >= '0' && f[1] <= '9') {
+				unsigned int n = (f[1] - '0') * 2;
+
+				fwrite(line + matched[n], 1, matched[n + 1] - matched[n], stdout);
+			} else {
+				switch(f[1]) {
+				case 'L':  /* whole line */
+					fwrite(line, 1, length, stdout);
+					break;
+				case 'n':  /* line number */
+					printf("%u", expr->line);
+					break;
+				case 'f':  /* file name */
+					fputs(expr->logfile->name, stdout);
+					break;
+				case 'l':  /* label */
+					fputs(expr->label, stdout);
+					break;
+				case '%':
+					fputc('%', stdout);
+					break;
+				default:
+					f++;
+					continue;
+				}
+			}
+			f += 2; fmt = f;
+			break;
+		case '\\':
+			switch(f[1]) {
+				case '\\': case '\'': case '\"': case '?':
+					c = f[1];
+					break;
+				case 'a':
+					c = '\a';
+					break;
+				case 'b':
+					c = '\b';
+					break;
+				case 'f':
+					c = '\f';
+					break;
+				case 'n':
+					c = '\n';
+					break;
+				case 'r':
+					c = '\r';
+					break;
+				case 't':
+					c = '\t';
+					break;
+				case 'v':
+					c = '\v';
+					break;
+				default:
+					f++;
+					continue;
+			}
+			fputc(c, stdout);
+			f += 2; fmt = f;
+			break;
+		}
+	}
+	if (f != fmt) {
+		fwrite(fmt, 1, f - fmt, stdout);
+		fmt = f;
+	}
 }
 
 static bool scan_bad_patterns(const char *line, unsigned int length,
@@ -468,9 +568,12 @@ static void scan_line(struct logfile *logfile, char *line, unsigned int length)
 				goto next;
 		}
 		list_for_each_entry(pattern, &expr->good, list) {
-			if (pattern_matches(pattern, line, length - 1)) {
+			const int *matched;
+
+			matched = pattern_matches(pattern, line, length - 1);
+			if (matched) {
 				if (opt_print)
-					printf("%s:%u %.*s\n", expr->label, expr->line, length - 1, line);
+					print_matches(expr, line, length - 1, matched, opt_print);
 				if (opt_verbose)
 					fprintf(info, "Pattern '%s' matches %sat %s:%u\n",
 						pattern->regex,

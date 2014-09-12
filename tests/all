@@ -61,9 +61,9 @@ Pattern 'a.c' matches at two:1
 Pattern 'd.f' matches at two:2
 EOF
 
-check 'logscan --print -y a.c -y d.f -n xyz -n zyx two' <<EOF
-two:1 abc
-two:2 def
+check 'logscan --printf="%f[%l]:%n %L %0 %2%1 \\\\ %%\\n" -y "(a)(.)" -y "(d)(.)" -n xyz -n zyx two --label TWO' <<EOF
+two[TWO]:1 abc ab ba \\ %
+two[TWO]:2 def de ed \\ %
 EOF
 
 check 'logscan --verbose -t0 -w -y ab -W -y de two || echo status: $?' <<EOF
