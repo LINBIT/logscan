@@ -356,20 +356,16 @@ static void seek_logfiles(void)
 
 	list_for_each_entry(logfile, &logfiles, list) {
 		struct expr *expr;
+		bool first = true;
 
-		logfile->line = (unsigned int)-1;
-		logfile->offset = (off_t)((unsigned long long)(off_t)-1 >> 1);
 		list_for_each_entry(expr, &logfile->expr, logfile_list) {
-			if (!expr->posfile) {
-				logfile->line = 1;
-				logfile->offset = 0;
-				break;
-			}
-			if (logfile->offset > expr->offset) {
+			if (first || logfile->offset > expr->offset) {
 				logfile->line = expr->line;
 				logfile->offset = expr->offset;
+				first = false;
 			}
 		}
+		assert(!first);
 		if (logfile->offset) {
 			if (opt_debug)
 				fprintf(info, "%s: seeking to line %u at offset %lu\n",
