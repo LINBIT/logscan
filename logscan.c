@@ -251,7 +251,7 @@ static struct other_logfile *new_other_logfile(const char *name,
 	return other_logfile;
 }
 
-static void read_posfile(struct posfile *posfile)
+static void read_posfile(struct posfile *posfile, bool must_exist)
 {
 	unsigned int new_logfiles = 0;
 	struct expr *expr;
@@ -262,7 +262,7 @@ static void read_posfile(struct posfile *posfile)
 
 	f = fopen(posfile->name, "r");
 	if (!f) {
-		if (errno == ENOENT)
+		if (!must_exist && errno == ENOENT)
 			return;
 		fatal("%s: %s: %s", progname, posfile->name, strerror(errno));
 	}
@@ -310,7 +310,7 @@ static void read_posfiles(void)
 	struct posfile *posfile;
 
 	list_for_each_entry(posfile, &posfiles, list)
-		read_posfile(posfile);
+		read_posfile(posfile, false);
 }
 
 static void write_posfile(struct posfile *posfile)
@@ -993,7 +993,7 @@ static void sync_new_posfile(const char *name, struct list_head *always_bad)
 	struct posfile *posfile;
 
 	posfile = new_posfile(optarg);
-	read_posfile(posfile);
+	read_posfile(posfile, true);
 	while (!list_empty(&posfile->other_logfiles)) {
 		struct other_logfile *other_logfile;
 		struct logfile *logfile;
