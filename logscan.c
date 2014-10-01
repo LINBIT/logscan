@@ -225,7 +225,7 @@ static void new_pattern(const char *regex, struct list_head *list, bool wordwise
 		int len;
 
 		wordwise_regex = alloca(size);
-		len = snprintf(wordwise_regex, size, "(^|\\s)%s(\\s|$)", regex);
+		len = snprintf(wordwise_regex, size, "\\b%s\\b", regex);
 		assert(len < size);
 		regex = wordwise_regex;
 	}
