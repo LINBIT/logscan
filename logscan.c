@@ -206,6 +206,11 @@ struct pattern {
 	pcre *re;
 	bool wordwise;
 	bool matches;
+	int ovec_count;
+	/* pcreapi(3):
+	 *   The number passed in ovecsize should always be a multiple of three.
+	 *   If it is not, it is rounded down. */
+	int ovector[3*20];
 };
 
 LIST_HEAD(logfiles);  /* All the logfiles we care about. */
@@ -401,22 +406,26 @@ static bool any_matched(struct list_head *patterns)
 	return false;
 }
 
-static const int *pattern_matches(struct pattern *pattern, const char *line, unsigned int length)
+static bool pattern_matches(struct pattern *pattern, const char *line, unsigned int length)
 {
-	static int matched[30];
-	int rc;
+	int rc, i;
+
+	pattern->ovec_count = -1;
 
 	/* Make sure the indexes for all substrings not matched are set to -1. */
-	if (matched[0] != -1)
-		memset(matched, -1, sizeof(matched));
+	if (pattern->ovector[0] != -1)
+		for(i=0; i < ARRAY_SIZE(pattern->ovector); i++)
+			pattern->ovector[i] = -1;
 
-	rc = pcre_exec(pattern->re, NULL, line, length, 0, 0, matched, ARRAY_SIZE(matched));
+	rc = pcre_exec(pattern->re, NULL, line, length, 0, 0, pattern->ovector, ARRAY_SIZE(pattern->ovector));
 	if (rc <= 0) {
 		if (rc == PCRE_ERROR_NOMATCH)
 			return NULL;
 		fatal("%s: %s: Matching error %d\n", progname, pattern->regex, rc);
 	}
-	return matched;
+
+	pattern->ovec_count = rc;
+	return true;
 }
 
 static void print_matches(struct expr *expr, const char *line, unsigned int length,
@@ -505,6 +514,38 @@ static void print_matches(struct expr *expr, const char *line, unsigned int leng
 	}
 }
 
+void print_matches_as_JSON(FILE *info, char *line, struct pattern *pattern)
+{
+	int i, j;
+	unsigned char ch;
+
+	for(i = 1; i < pattern->ovec_count; i++) {
+		if (i>1)
+			fprintf(info, ", ");
+
+		/* With pcre-7.8-6.el6.i686 
+		 * we get single space strings as output, too.
+		 * After updating to pcre-7.8-7.el6.i686 they're gone.
+		 */
+		if (pattern->ovector[i*2] == -1 && pattern->ovector[i*2+1] == -1) {
+			fprintf(info, "null");
+		} else {
+
+			fprintf(info, "\"");
+
+			for(j = pattern->ovector[i*2]; j < pattern->ovector[i*2+1]; j++){
+				ch = line[j];
+				if (ch >= ' ' && ch <= '~' && ch != '"' && ch != '\\')
+					fputc(ch, info);
+				else
+					fprintf(info, "\\u%04o", ch);
+			}
+
+			fprintf(info, "\"");
+		}
+	}
+}
+
 static bool scan_bad_patterns(const char *line, unsigned int length,
 			      const char *label, unsigned int lineno,
 			      struct list_head *list)
@@ -538,6 +579,7 @@ static bool logfile_active(struct logfile *logfile)
 static void scan_line(struct logfile *logfile, char *line, unsigned int length)
 {
 	struct expr *expr;
+	int matched;
 
 	list_for_each_entry(expr, &logfile->expr, logfile_list) {
 		struct pattern *pattern;
@@ -564,18 +606,19 @@ static void scan_line(struct logfile *logfile, char *line, unsigned int length)
 				goto next;
 		}
 		list_for_each_entry(pattern, &expr->good, list) {
-			const int *matched;
-
 			matched = pattern_matches(pattern, line, length - 1);
 			if (matched) {
 				if (opt_print)
-					print_matches(expr, line, length - 1, matched, opt_print);
-				if (opt_verbose)
-					fprintf(info, "Pattern '%s' matches %sat %s:%u\n",
+					print_matches(expr, line, length - 1, pattern->ovector, opt_print);
+				if (opt_verbose) {
+					fprintf(info, "Pattern '%s' matches %sat %s:%u; [",
 						pattern->regex,
 						pattern->matches ? "again " : "",
 						expr->label,
 						expr->line);
+					print_matches_as_JSON(info, line, pattern);
+					fprintf(info, "]\n");
+				}
 				if (!pattern->matches) {
 					pattern->matches = true;
 					expr->active_good--;
