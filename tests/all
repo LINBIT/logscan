@@ -28,6 +28,12 @@ def
 zyx
 EOF
 
+cat > three <<EOF
+abc
+def
+quotes:"'+*
+EOF
+
 # --------------------------------------------------------------
 # Checking a single file
 
@@ -57,8 +63,8 @@ check 'logscan -y abc -y def -n xyz -n zyx two' <<EOF
 EOF
 
 check 'logscan --verbose -y a.c -y d.f -n xyz -n zyx two' <<EOF
-Pattern 'a.c' matches at two:1
-Pattern 'd.f' matches at two:2
+Pattern 'a.c' matches at two:1; []
+Pattern 'd.f' matches at two:2; []
 EOF
 
 check 'logscan --printf="%f[%l]:%n %L %0 %2%1 \\\\ %%\\n" -y "(a)(.)" -y "(d)(.)" -n xyz -n zyx two --label TWO' <<EOF
@@ -67,8 +73,8 @@ two[TWO]:2 def de ed \\ %
 EOF
 
 check 'logscan --verbose -t0 -w -y ab -W -y de two || echo status: $?' <<EOF
-Pattern 'de' matches at two:2
-Pattern 'de' matches again at two:5
+Pattern 'de' matches at two:2; []
+Pattern 'de' matches again at two:5; []
 Pattern 'ab' does not match in two (lines 1-7)
 status: 1
 EOF
@@ -82,13 +88,22 @@ status: 1
 EOF
 
 check 'logscan --verbose -y abc -y def -N xyz -N zyx two' <<EOF
-Pattern 'abc' matches at two:1
-Pattern 'def' matches at two:2
+Pattern 'abc' matches at two:1; []
+Pattern 'def' matches at two:2; []
 EOF
 
 check 'logscan -y abc -y def -n xyz -n zyx one --label=label1 || echo status: $?' <<EOF
 Unexpected pattern 'xyz' matches at label1:1
 status: 1
+EOF
+
+# --------------------------------------------------------------
+# Checking JSON data
+
+check 'logscan --verbose -y "^(quotes:)(.*)" -y "a(b(c))" -y "(def)" -N xyz -N zyx three' <<EOF
+Pattern 'a(b(c))' matches at three:1; ["bc", "c"]
+Pattern '(def)' matches at three:2; ["def"]
+Pattern '^(quotes:)(.*)' matches at three:3; ["quotes:", "\u0042'+*"]
 EOF
 
 # --------------------------------------------------------------
@@ -106,29 +121,29 @@ EOF
 # Checking multiple files at once
 
 check '(logscan --verbose -y abc -y def -n xyz -n zyx one two 2>&1 || echo status: $?) | sort' <<EOF
-Pattern 'abc' matches at two:1
-Pattern 'def' matches at two:2
+Pattern 'abc' matches at two:1; []
+Pattern 'def' matches at two:2; []
 Unexpected pattern 'xyz' matches at one:1
 status: 1
 EOF
 
 check '(logscan --verbose -y abc -y def -n xyz -n zyx -ppos one two 2>&1 || echo status: $?) | sort' <<EOF
-Pattern 'abc' matches at two:1
-Pattern 'def' matches at two:2
+Pattern 'abc' matches at two:1; []
+Pattern 'def' matches at two:2; []
 Unexpected pattern 'xyz' matches at one:1
 status: 1
 EOF
 
 check '(logscan --verbose -y abc -y def -n xyz -n zyx -ppos one two 2>&1 || echo status: $?) | sort' <<EOF
-Pattern 'abc' matches at one:4
-Pattern 'abc' matches at two:4
-Pattern 'def' matches at one:3
-Pattern 'def' matches at two:5
+Pattern 'abc' matches at one:4; []
+Pattern 'abc' matches at two:4; []
+Pattern 'def' matches at one:3; []
+Pattern 'def' matches at two:5; []
 EOF
 
 check '(logscan --verbose -y abc -y def -n xyz -n zyx -ppos one two 2>&1 || echo status: $?) | sort' <<EOF
-Pattern 'abc' matches at one:7
-Pattern 'def' matches at one:6
+Pattern 'abc' matches at one:7; []
+Pattern 'def' matches at one:6; []
 Unexpected pattern 'zyx' matches at two:7
 status: 1
 EOF
@@ -148,22 +163,22 @@ EOF
 ( sleep 0.1; echo abc; sleep 0.1; echo def ) >> one &
 
 check 'logscan --verbose -y abc -y def -n xyz -n zyx -ppos -t 0.3 one' <<EOF
-Pattern 'abc' matches at one:9
-Pattern 'def' matches at one:10
+Pattern 'abc' matches at one:9; []
+Pattern 'def' matches at one:10; []
 EOF
 
 ( echo def; echo abc ) >> two
 
 check 'logscan --verbose -y abc -y def -n xyz -n zyx -ppos two' <<EOF
-Pattern 'def' matches at two:9
-Pattern 'abc' matches at two:10
+Pattern 'def' matches at two:9; []
+Pattern 'abc' matches at two:10; []
 EOF
 
 # ----------------------------------------------------------------
 # Filter option
 
 check 'logscan --verbose -f a -y abc one || echo status: $?' <<EOF
-Pattern 'abc' matches at one:4
+Pattern 'abc' matches at one:4; []
 EOF
 
 check 'logscan -f a -n acb one -t 0 || echo status: $?' <<EOF
@@ -197,8 +212,8 @@ rm -f pos
 
 # Global options
 check 'logscan --verbose -p pos -y abc one two || echo status: $?' <<EOF
-Pattern 'abc' matches at one:4
-Pattern 'abc' matches at two:1
+Pattern 'abc' matches at one:4; []
+Pattern 'abc' matches at two:1; []
 EOF
 check 'cat pos' <<EOF
 5 13 one
@@ -208,8 +223,8 @@ rm -f pos
 
 # Local options, one position tracking file
 check 'logscan --verbose one -p pos -y xyz two -p pos -y zyx || echo status: $?' <<EOF
-Pattern 'xyz' matches at one:1
-Pattern 'zyx' matches at two:7
+Pattern 'xyz' matches at one:1; []
+Pattern 'zyx' matches at two:7; []
 EOF
 check 'cat pos' <<EOF
 2 4 one
@@ -219,8 +234,8 @@ rm -f pos
 
 # Two different position tracking files for the same log file
 check 'logscan --verbose one -p pos1 -y abc one -p pos2 -y abc || echo status: $?' <<EOF
-Pattern 'abc' matches at one:4
-Pattern 'abc' matches at one:4
+Pattern 'abc' matches at one:4; []
+Pattern 'abc' matches at one:4; []
 EOF
 check 'cat pos1' <<EOF
 5 13 one
@@ -232,8 +247,8 @@ rm -f pos1 pos2
 
 # Patterns for the same log file and position tracking file are merged
 check 'logscan --verbose one -p pos -y abc one -p pos -y def || echo status: $?' <<EOF
-Pattern 'def' matches at one:3
-Pattern 'abc' matches at one:4
+Pattern 'def' matches at one:3; []
+Pattern 'abc' matches at one:4; []
 EOF
 rm -f pos
 
@@ -254,29 +269,29 @@ EOF
 check 'logscan --verbose -y started \
 	log --label log:proc1 -p pos1 -f proc1 \
 	log --label log:proc2 -p pos2 -f proc2' <<EOF
-Pattern 'started' matches at log:proc1:1
-Pattern 'started' matches at log:proc2:3
+Pattern 'started' matches at log:proc1:1; []
+Pattern 'started' matches at log:proc2:3; []
 EOF
 
 check 'logscan --verbose -y stopped \
 	log --label log:proc1 -p pos1 -f proc1 \
 	log --label log:proc2 -p pos2 -f proc2' <<EOF
-Pattern 'stopped' matches at log:proc1:2
-Pattern 'stopped' matches at log:proc2:5
+Pattern 'stopped' matches at log:proc1:2; []
+Pattern 'stopped' matches at log:proc2:5; []
 EOF
 
 check 'logscan --verbose -y started \
 	log --label log:proc1 -p pos1 -f proc1 \
 	log --label log:proc2 -p pos2 -f proc2' <<EOF
-Pattern 'started' matches at log:proc1:4
-Pattern 'started' matches at log:proc2:7
+Pattern 'started' matches at log:proc1:4; []
+Pattern 'started' matches at log:proc2:7; []
 EOF
 
 check 'logscan --verbose -y stopped \
 	log --label log:proc1 -p pos1 -f proc1 \
 	log --label log:proc2 -p pos2 -f proc2' <<EOF
-Pattern 'stopped' matches at log:proc1:6
-Pattern 'stopped' matches at log:proc2:8
+Pattern 'stopped' matches at log:proc1:6; []
+Pattern 'stopped' matches at log:proc2:8; []
 EOF
 rm -f proc1 proc2
 
