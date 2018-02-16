@@ -31,9 +31,14 @@ LOG_COMPILER = \
 EXTRA_DIST = \
 	$(TESTS) \
 	tests/test-lib.sh \
-	$(top_srcdir)/.version
-	$(top_srcdir)/build-aux/git-version-gen
-	$(top_srcdir)/build-aux/gitlog-to-changelog
+	$(top_srcdir)/.version \
+	$(top_srcdir)/build-aux/git-version-gen \
+	$(top_srcdir)/build-aux/gitlog-to-changelog \
+	$(top_srcdir)/debian/changelog \
+	$(top_srcdir)/debian/compat \
+	$(top_srcdir)/debian/control \
+	$(top_srcdir)/debian/copyright \
+	$(top_srcdir)/debian/rules
 
 BUILT_SOURCES = $(top_srcdir)/.version
 
@@ -60,5 +65,5 @@ rpm: dist
 		--clean \
 		$(PACKAGE).spec
 
-debian: rpm
-	ls -t build/RPMS/*/* | head -n 1 | xargs fakeroot alien
+deb:
+	debuild -us -uc -i -b
