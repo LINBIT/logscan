@@ -32,6 +32,8 @@ EXTRA_DIST = \
 	$(TESTS) \
 	tests/test-lib.sh \
 	$(top_srcdir)/.version
+	$(top_srcdir)/build-aux/git-version-gen
+	$(top_srcdir)/build-aux/gitlog-to-changelog
 
 BUILT_SOURCES = $(top_srcdir)/.version
 
